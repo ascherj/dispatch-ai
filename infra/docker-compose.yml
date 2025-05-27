@@ -1,0 +1,171 @@
+services:
+  # Message Broker - Redpanda (Kafka-compatible)
+  redpanda:
+    image: redpandadata/redpanda:v23.3.5
+    container_name: auto-triager-redpanda
+    command:
+      - redpanda
+      - start
+      - --kafka-addr
+      - internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr
+      - internal://redpanda:9092,external://localhost:19092
+      - --pandaproxy-addr
+      - internal://0.0.0.0:8082,external://0.0.0.0:18082
+      - --advertise-pandaproxy-addr
+      - internal://redpanda:8082,external://localhost:18082
+      - --schema-registry-addr
+      - internal://0.0.0.0:8081,external://0.0.0.0:18081
+      - --rpc-addr
+      - redpanda:33145
+      - --advertise-rpc-addr
+      - redpanda:33145
+      - --smp
+      - '1'
+      - --memory
+      - 1G
+      - --mode
+      - dev-container
+      - --default-log-level=info
+    ports:
+      - "19092:19092"  # Kafka API
+      - "18081:18081"  # Schema Registry
+      - "18082:18082"  # REST Proxy
+      - "9644:9644"    # Admin API
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+    networks:
+      - auto-triager-network
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true' || exit 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  # Database - PostgreSQL 16 with pgvector
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: auto-triager-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-auto_triager}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    networks:
+      - auto-triager-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-auto_triager}"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  # Ingress Service - FastAPI webhook receiver
+  ingress:
+    build:
+      context: ../ingress
+      dockerfile: Dockerfile.dev
+    container_name: auto-triager-ingress
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=redpanda:9092
+      - POSTGRES_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-auto_triager}
+      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../ingress:/app
+      - /app/node_modules
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - auto-triager-network
+    restart: unless-stopped
+
+  # Classifier Service - LangChain AI worker
+  classifier:
+    build:
+      context: ../classifier
+      dockerfile: Dockerfile.dev
+    container_name: auto-triager-classifier
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=redpanda:9092
+      - POSTGRES_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-auto_triager}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - ../classifier:/app
+      - /app/node_modules
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - auto-triager-network
+    restart: unless-stopped
+
+  # Gateway Service - WebSocket/REST API
+  gateway:
+    build:
+      context: ../gateway
+      dockerfile: Dockerfile.dev
+    container_name: auto-triager-gateway
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=redpanda:9092
+      - POSTGRES_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-auto_triager}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    ports:
+      - "8001:8001"
+    volumes:
+      - ../gateway:/app
+      - /app/node_modules
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - auto-triager-network
+    restart: unless-stopped
+
+  # Dashboard - React frontend
+  dashboard:
+    build:
+      context: ../dashboard
+      dockerfile: Dockerfile.dev
+    container_name: auto-triager-dashboard
+    environment:
+      - REACT_APP_API_URL=http://localhost:8001
+      - REACT_APP_WS_URL=ws://localhost:8001/ws
+      - CHOKIDAR_USEPOLLING=true
+    ports:
+      - "3000:3000"
+    volumes:
+      - ../dashboard:/app
+      - /app/node_modules
+    depends_on:
+      - gateway
+    networks:
+      - auto-triager-network
+    restart: unless-stopped
+
+volumes:
+  redpanda_data:
+    driver: local
+  postgres_data:
+    driver: local
+
+networks:
+  auto-triager-network:
+    driver: bridge
