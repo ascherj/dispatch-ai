@@ -1,0 +1,29 @@
+# LangChain and AI
+langchain
+langchain-openai
+langchain-community
+openai
+tiktoken
+
+# Vector database and ML
+faiss-cpu
+numpy
+scikit-learn
+
+# Database and messaging
+psycopg2-binary
+kafka-python
+
+# Web framework
+fastapi
+uvicorn[standard]
+
+# Core dependencies
+pydantic
+python-dotenv
+structlog
+httpx
+
+# Test dependencies
+pytest
+pytest-asyncio

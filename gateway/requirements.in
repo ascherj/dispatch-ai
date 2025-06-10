@@ -1,0 +1,17 @@
+# Core framework and server
+fastapi
+uvicorn[standard]
+
+# Core dependencies
+pydantic
+httpx
+websockets
+python-multipart
+python-dotenv
+jinja2
+psycopg2-binary
+structlog
+
+# Test dependencies
+pytest
+pytest-asyncio
