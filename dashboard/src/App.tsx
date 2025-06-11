@@ -42,7 +42,8 @@ function App() {
 
   useEffect(() => {
     // Connect to WebSocket
-    const ws = new WebSocket('ws://localhost:8002/ws')
+    const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:8002/ws'
+    const ws = new WebSocket(wsUrl)
 
     ws.onopen = () => {
       setConnectionStatus('connected')
@@ -91,13 +92,14 @@ function App() {
 
   useEffect(() => {
     // Fetch initial issues
-    fetch('http://localhost:8002/api/issues')
+    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8002'
+    fetch(`${apiUrl}/api/issues`)
       .then(res => res.json())
       .then(data => setIssues(data))
       .catch(error => console.error('Error fetching issues:', error))
 
     // Fetch stats
-    fetch('http://localhost:8002/api/stats')
+    fetch(`${apiUrl}/api/stats`)
       .then(res => res.json())
       .then(data => setStats(data))
       .catch(error => console.error('Error fetching stats:', error))
@@ -105,7 +107,8 @@ function App() {
 
   const triggerClassification = async (issueId: number) => {
     try {
-      await fetch(`http://localhost:8002/api/issues/${issueId}/classify`, {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8002'
+      await fetch(`${apiUrl}/api/issues/${issueId}/classify`, {
         method: 'POST'
       })
     } catch (error) {
