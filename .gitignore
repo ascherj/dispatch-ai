@@ -313,8 +313,8 @@ local/
 *.backup
 
 # Task Master specific
-tasks.json
-tasks/
+# tasks.json
+# tasks/
 
 # AI/ML specific
 *.model

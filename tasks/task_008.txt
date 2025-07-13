@@ -1,0 +1,60 @@
+# Task ID: 8
+# Title: React Dashboard Frontend Development
+# Status: pending
+# Dependencies: 7
+# Priority: medium
+# Description: Build a React dashboard that connects to the WebSocket gateway and displays real-time issue updates with filtering and sorting capabilities.
+# Details:
+1. Set up React 18 project in `/dashboard` directory using Vite (v5.0.0+):
+```bash
+npm create vite@latest dashboard -- --template react-ts
+cd dashboard
+npm install
+```
+2. Install dependencies:
+```bash
+npm install tailwindcss postcss autoprefixer
+npm install shadcn-ui
+npm install react-query @tanstack/react-table date-fns
+npm install reconnecting-websocket
+```
+3. Configure Tailwind CSS and shadcn/ui components
+4. Create WebSocket connection manager:
+```typescript
+import ReconnectingWebSocket from 'reconnecting-websocket';
+
+export function useIssueStream() {
+  const [issues, setIssues] = useState<Issue[]>([]);
+  
+  useEffect(() => {
+    const ws = new ReconnectingWebSocket('ws://localhost:8000/issues/stream');
+    
+    ws.onmessage = (event) => {
+      const issue = JSON.parse(event.data);
+      setIssues(prev => [issue, ...prev]);
+    };
+    
+    return () => ws.close();
+  }, []);
+  
+  return issues;
+}
+```
+5. Implement dashboard components:
+   - Header with project info and filters
+   - Issue list with sorting and filtering
+   - Issue detail view
+   - Manual correction UI
+6. Add filtering by severity, component, repo, date
+7. Implement sorting functionality
+8. Create manual correction form that sends updates back to API
+9. Ensure WCAG 2.1 AA accessibility compliance
+10. Add responsive design for desktop screens
+
+# Test Strategy:
+1. Unit tests with React Testing Library
+2. Component tests with Storybook
+3. End-to-end tests with Cypress
+4. Accessibility testing with axe-core
+5. Performance testing with Lighthouse
+6. Test WebSocket reconnection behavior

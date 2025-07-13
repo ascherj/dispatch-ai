@@ -1,0 +1,35 @@
+# Task ID: 15
+# Title: Demo Preparation and Launch Materials
+# Status: pending
+# Dependencies: 8, 9, 10, 11, 12, 13, 14
+# Priority: low
+# Description: Create demo materials, including a screencast GIF, blog post, and LinkedIn announcement to showcase the project.
+# Details:
+1. Create screencast GIF demonstrating key features:
+   - Issue ingestion and classification
+   - Real-time dashboard updates
+   - Filtering and sorting
+   - Manual corrections
+2. Write blog post explaining:
+   - Project motivation and goals
+   - Technical architecture and decisions
+   - Implementation challenges and solutions
+   - Performance characteristics
+   - Future work
+3. Prepare LinkedIn announcement with:
+   - Project summary
+   - Key technical achievements
+   - Link to GitHub repository
+   - Screencast GIF
+   - Call to action for feedback
+4. Create demo script for live presentations
+5. Set up sample GitHub repository for live demos
+6. Configure demo environment with sample data
+7. Prepare talking points for technical interviews
+
+# Test Strategy:
+1. Review demo materials with peers
+2. Test screencast GIF on different platforms
+3. Verify all links in blog post and announcements
+4. Practice demo script with timing
+5. Test demo environment with various scenarios

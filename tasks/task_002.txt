@@ -1,0 +1,39 @@
+# Task ID: 2
+# Title: FastAPI Webhook Receiver Implementation
+# Status: pending
+# Dependencies: 1
+# Priority: high
+# Description: Create a secure FastAPI endpoint that validates and receives GitHub webhook events for issues, issue comments, and pull requests.
+# Details:
+1. Create FastAPI application in `/ingress` directory
+2. Implement `/webhook/github` POST endpoint that:
+   - Validates GitHub webhook signatures using `X-Hub-Signature-256` header
+   - Processes events with types: `issues`, `issue_comment`, `pull_request`
+   - Logs request metadata and payload
+3. Use Pydantic models for GitHub webhook payloads:
+```python
+class GitHubIssue(BaseModel):
+    id: int
+    number: int
+    title: str
+    body: Optional[str] = None
+    repository: Dict[str, Any]
+    user: Dict[str, Any]
+    created_at: datetime
+    # Additional fields as needed
+
+class GitHubWebhookPayload(BaseModel):
+    action: str
+    issue: Optional[GitHubIssue] = None
+    # Other event types
+```
+4. Implement secret management for GitHub webhook secret
+5. Add rate limiting using FastAPI middleware
+6. Configure Uvicorn with appropriate worker count and timeout settings
+7. Add health check endpoint `/health`
+
+# Test Strategy:
+1. Unit tests with pytest and httpx for mocked webhook payloads
+2. Integration test with actual GitHub webhook signature validation
+3. Load test to ensure endpoint can handle target throughput
+4. Security test to verify signature validation rejects invalid signatures

@@ -1,0 +1,48 @@
+# Task ID: 14
+# Title: Documentation and Deployment Guide
+# Status: pending
+# Dependencies: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13
+# Priority: medium
+# Description: Create comprehensive documentation including architecture diagrams, API references, and a step-by-step deployment guide.
+# Details:
+1. Create project README.md with:
+   - Project overview and purpose
+   - Architecture diagram
+   - Quick start guide
+   - Development setup instructions
+   - Deployment instructions
+2. Generate API documentation using OpenAPI/Swagger:
+```python
+from fastapi import FastAPI
+from fastapi.openapi.docs import get_swagger_ui_html
+
+app = FastAPI(
+    title="Auto-Triager API",
+    description="API for the Auto-Triager service",
+    version="1.0.0"
+)
+
+# Enable Swagger UI
+@app.get("/docs", include_in_schema=False)
+async def custom_swagger_ui_html():
+    return get_swagger_ui_html(
+        openapi_url="/openapi.json",
+        title="Auto-Triager API"
+    )
+```
+3. Create architecture documentation with diagrams:
+   - System components and interactions
+   - Data flow diagrams
+   - Sequence diagrams for key processes
+4. Document database schema and migrations
+5. Create deployment guide for Fly.io
+6. Add troubleshooting section with common issues
+7. Document observability setup and dashboards
+8. Create contributor guidelines
+
+# Test Strategy:
+1. Verify documentation accuracy with peer review
+2. Test deployment guide with a clean environment
+3. Validate API documentation against actual endpoints
+4. Test README instructions for completeness
+5. Verify troubleshooting guide addresses common issues

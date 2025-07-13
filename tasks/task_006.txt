@@ -1,0 +1,32 @@
+# Task ID: 6
+# Title: Enriched Issues Kafka Producer
+# Status: pending
+# Dependencies: 5
+# Priority: medium
+# Description: Implement the Kafka producer that publishes enriched issues to the 'issues.enriched' topic after AI processing.
+# Details:
+1. Extend the classifier service to publish enriched issues:
+```python
+async def publish_enriched_issue(issue_data):
+    await producer.send_and_wait(
+        'issues.enriched',
+        value=issue_data,
+        key=str(issue_data['id']).encode()
+    )
+```
+2. Configure the 'issues.enriched' topic in Redpanda with appropriate settings
+3. Ensure the enriched payload includes:
+   - Original issue data
+   - Classification results (component, severity, summary, tags)
+   - Timestamp of enrichment
+   - Processing metadata (model used, confidence scores)
+4. Implement schema validation for enriched messages
+5. Add monitoring for producer metrics
+6. Ensure idempotent production to avoid duplicates
+
+# Test Strategy:
+1. Unit tests with mocked Kafka producer
+2. Integration tests with end-to-end flow from raw to enriched
+3. Verify message format and schema compliance
+4. Test idempotency with duplicate messages
+5. Benchmark throughput to ensure it meets requirements

@@ -1,0 +1,36 @@
+# Task ID: 3
+# Title: Redpanda/Kafka Integration for Raw Events
+# Status: pending
+# Dependencies: 2
+# Priority: high
+# Description: Implement Kafka producer to serialize and publish raw GitHub webhook events to the 'issues.raw' topic.
+# Details:
+1. Add Kafka producer to the webhook receiver using aiokafka (v0.8.1+):
+```python
+from aiokafka import AIOKafkaProducer
+import json
+
+producer = AIOKafkaProducer(
+    bootstrap_servers='redpanda:9092',
+    value_serializer=lambda v: json.dumps(v).encode('utf-8')
+)
+
+async def publish_event(event_type: str, payload: dict):
+    await producer.send_and_wait(
+        'issues.raw',
+        value=payload,
+        key=str(payload.get('id', '')).encode()
+    )
+```
+2. Configure Redpanda topic 'issues.raw' with appropriate retention and replication settings
+3. Implement error handling and retry logic for producer failures
+4. Add monitoring for Kafka producer metrics
+5. Ensure at-least-once delivery semantics
+6. Implement graceful shutdown to flush pending messages
+
+# Test Strategy:
+1. Unit tests with mocked Kafka producer
+2. Integration tests with actual Redpanda instance
+3. Verify message delivery with consumer test harness
+4. Test error handling and retry logic with simulated failures
+5. Benchmark throughput to ensure it meets 1000 issues/min requirement
