@@ -1,5 +1,5 @@
 # Core framework and server
-fastapi
+fastapi>=0.116.1
 uvicorn[standard]
 
 # Core dependencies
@@ -12,6 +12,6 @@ jinja2
 psycopg2-binary
 structlog
 
-# Test dependencies
-pytest
-pytest-asyncio
+# Test dependencies  
+pytest>=8.2.2
+pytest-asyncio>=0.23.7

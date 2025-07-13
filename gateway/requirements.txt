@@ -17,7 +17,7 @@ certifi==2025.4.26
     #   httpx
 click==8.2.1
     # via uvicorn
-fastapi==0.115.12
+fastapi==0.116.1
     # via -r requirements.in
 h11==0.16.0
     # via
@@ -51,11 +51,13 @@ pydantic==2.11.1
     #   fastapi
 pydantic-core==2.33.0
     # via pydantic
-pytest==7.4.3
+pygments==2.19.2
+    # via pytest
+pytest==8.4.1
     # via
     #   -r requirements.in
     #   pytest-asyncio
-pytest-asyncio==0.21.1
+pytest-asyncio==1.0.0
     # via -r requirements.in
 python-dotenv==1.1.0
     # via
