@@ -102,7 +102,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
           cache: 'npm'
           cache-dependency-path: '**/package-lock.json'
 
@@ -152,13 +152,19 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
 
       - name: Install Python testing dependencies
         if: needs.setup.outputs.has-python-components == 'true'
         run: |
           python -m pip install --upgrade pip
           pip install pytest pytest-cov
+          # Install dependencies for each Python component
+          find . -name "requirements.txt" -not -path "./node_modules/*" | while read req_file; do
+            dir=$(dirname "$req_file")
+            echo "Installing Python dependencies in $dir"
+            pip install -r "$req_file"
+          done
 
       - name: Install Node.js dependencies
         if: needs.setup.outputs.has-js-components == 'true'
@@ -173,7 +179,7 @@ jobs:
       - name: Run tests
         run: |
           if [ "${{ needs.setup.outputs.makefile-exists }}" == "true" ]; then
-            make test
+            make test-ci
           else
             echo "Running tests directly..."
             # Run Python tests

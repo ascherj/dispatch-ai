@@ -68,9 +68,16 @@ check-containers: ## Check if all containers are running
 	@docker ps --format "table {{.Names}}" | grep -q "auto-triager-dashboard" && echo "✅ Running" || echo "❌ Not Running"
 
 # Testing
-test: ## Run all tests
+test: ## Run all tests (requires running containers)
 	@echo "Running all tests..."
 	@make test-ingress
+	@make test-classifier
+	@make test-gateway
+	@make test-dashboard
+
+test-ci: ## Run all tests for CI (no containers required)
+	@echo "Running all tests for CI..."
+	@make test-ingress-local
 	@make test-classifier
 	@make test-gateway
 	@make test-dashboard
@@ -83,7 +90,7 @@ test-docker: ## Run all tests in Docker containers (requires dev environment)
 	@make test-gateway-docker
 	@make test-dashboard-docker
 
-test-ingress: ## Run ingress component tests
+test-ingress: ## Run ingress component tests (requires container)
 	@echo "Testing ingress component..."
 	@if docker ps --format "table {{.Names}}" | grep -q "auto-triager-ingress"; then \
 		echo "Running tests in Docker container..."; \
@@ -91,6 +98,14 @@ test-ingress: ## Run ingress component tests
 	else \
 		echo "❌ Ingress container not running. Start with 'make dev' first"; \
 		exit 1; \
+	fi
+
+test-ingress-local: ## Run ingress component tests locally
+	@echo "Testing ingress component locally..."
+	@if [ -f ingress/requirements.txt ]; then \
+		cd ingress && python -m pytest test_webhook.py -v; \
+	else \
+		echo "⚠️  Ingress tests not yet implemented"; \
 	fi
 
 test-classifier: ## Run classifier component tests (local)
