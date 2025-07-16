@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS issues (
     labels JSONB DEFAULT '[]',
     assignees JSONB DEFAULT '[]',
     author VARCHAR(255),
+    author_association VARCHAR(50), -- 'OWNER', 'COLLABORATOR', 'CONTRIBUTOR', etc.
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
     closed_at TIMESTAMP WITH TIME ZONE,
@@ -38,9 +39,17 @@ CREATE TABLE IF NOT EXISTS enriched_issues (
     classification JSONB NOT NULL, -- {type, priority, component, sentiment, etc.}
     summary TEXT,
     tags TEXT[] DEFAULT '{}',
+    suggested_assignees TEXT[] DEFAULT '{}',
+    estimated_effort VARCHAR(20), -- 'low', 'medium', 'high', 'very_high'
+    category VARCHAR(50), -- 'bug', 'feature', 'documentation', 'question', etc.
+    priority VARCHAR(20), -- 'low', 'medium', 'high', 'urgent'
+    severity VARCHAR(20), -- 'minor', 'major', 'critical', 'blocker'
+    component VARCHAR(100), -- 'frontend', 'backend', 'api', 'database', etc.
+    sentiment VARCHAR(20), -- 'positive', 'neutral', 'negative'
     embedding vector(1536), -- OpenAI ada-002 embedding dimension
-    confidence_score DECIMAL(3,2) CHECK (confidence_score >= 0 AND confidence_score <= 1),
+    confidence_score DECIMAL(5,4) CHECK (confidence_score >= 0 AND confidence_score <= 1),
     processing_model VARCHAR(100),
+    ai_reasoning TEXT, -- Store AI's reasoning for transparency
     processed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -123,13 +132,30 @@ CREATE TRIGGER update_enriched_issues_updated_at
 -- This can be removed in production
 INSERT INTO issues (
     github_issue_id, repository_name, repository_owner, issue_number,
-    title, body, state, labels, author, created_at, updated_at, raw_data
-) VALUES (
+    title, body, state, labels, author, author_association, created_at, updated_at, raw_data
+) VALUES 
+(
     1, 'auto-triager', 'ascherj', 1,
-    'Sample Issue for Testing', 'This is a sample issue body for testing the database setup.',
-    'open', '["bug", "high-priority"]', 'test-user',
-    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, '{"sample": true}'
-) ON CONFLICT (repository_owner, repository_name, issue_number) DO NOTHING;
+    'App crashes on startup with npm start', 
+    'When I run npm start, I get the following error:\n\nError: Cannot find module ''./config''\n\nThis happens consistently on macOS with Node.js 18.x. The error prevents the development server from starting.',
+    'open', '["bug"]', 'contributor-user', 'CONTRIBUTOR',
+    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, '{"sample": true, "event": "opened"}'
+),
+(
+    2, 'auto-triager', 'ascherj', 2,
+    'Add dark mode support to dashboard',
+    'It would be great to have a dark mode toggle in the dashboard. This would improve user experience, especially for developers working in low-light environments.\n\nSuggested implementation:\n- Toggle button in header\n- Save preference in localStorage\n- CSS variables for theme switching',
+    'open', '["enhancement", "ui"]', 'external-contributor', 'FIRST_TIME_CONTRIBUTOR',
+    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, '{"sample": true, "event": "opened"}'
+),
+(
+    3, 'auto-triager', 'ascherj', 3,
+    'Update README with installation instructions',
+    'The README is missing clear installation instructions. New contributors need step-by-step setup guide.',
+    'open', '["documentation", "good-first-issue"]', 'maintainer', 'OWNER',
+    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, '{"sample": true, "event": "opened"}'
+)
+ON CONFLICT (repository_owner, repository_name, issue_number) DO NOTHING;
 
 -- Grant permissions (adjust as needed for your security requirements)
 GRANT USAGE ON SCHEMA auto_triager TO postgres;
