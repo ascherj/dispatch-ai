@@ -17,6 +17,8 @@ certifi==2025.4.26
     #   httpx
 click==8.2.1
     # via uvicorn
+cramjam==2.10.0
+    # via python-snappy
 fastapi==0.116.1
     # via -r requirements.in
 h11==0.16.0
@@ -36,6 +38,8 @@ idna==3.10
 iniconfig==2.1.0
     # via pytest
 jinja2==3.1.2
+    # via -r requirements.in
+kafka-python==2.2.15
     # via -r requirements.in
 markupsafe==3.0.2
     # via jinja2
@@ -64,6 +68,8 @@ python-dotenv==1.1.0
     #   -r requirements.in
     #   uvicorn
 python-multipart==0.0.6
+    # via -r requirements.in
+python-snappy==0.7.3
     # via -r requirements.in
 pyyaml==6.0.2
     # via uvicorn

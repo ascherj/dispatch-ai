@@ -7,6 +7,7 @@ import json
 from typing import Dict, Any, List, Optional, Set
 from datetime import datetime
 import asyncio
+import threading
 
 import structlog
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends
@@ -16,6 +17,7 @@ from pydantic import BaseModel
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import httpx
+from kafka import KafkaConsumer
 
 # Configure structured logging
 structlog.configure(
@@ -66,6 +68,13 @@ class ClassificationUpdate(BaseModel):
     tags: List[str]
     similar_issues: List[Dict[str, Any]]
 
+class ManualCorrection(BaseModel):
+    issue_id: int
+    category: str
+    priority: str
+    tags: List[str]
+    notes: Optional[str] = None
+
 class HealthResponse(BaseModel):
     status: str
     service: str
@@ -74,6 +83,7 @@ class HealthResponse(BaseModel):
 
 # Environment configuration
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@postgres:5432/auto_triager")
+KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "redpanda:9092")
 DASHBOARD_URL = os.getenv("DASHBOARD_URL", "http://localhost:3000")
 
 # WebSocket connection manager
@@ -145,7 +155,7 @@ async def get_issues(
             params = []
 
             if repository:
-                where_conditions.append("i.repository = %s")
+                where_conditions.append("i.repository_name = %s")
                 params.append(repository)
 
             if category:
@@ -160,10 +170,10 @@ async def get_issues(
 
             query = f"""
                 SELECT
-                    i.id, i.number, i.title, i.repository, i.created_at, i.updated_at,
-                    e.category, e.priority, e.confidence, e.tags
-                FROM issues i
-                LEFT JOIN enriched_issues e ON i.id = e.issue_id
+                    i.id, i.issue_number, i.title, i.repository_name, i.created_at, i.updated_at,
+                    e.category, e.priority, e.confidence_score, e.tags
+                FROM auto_triager.issues i
+                LEFT JOIN auto_triager.enriched_issues e ON i.id = e.issue_id
                 WHERE {where_clause}
                 ORDER BY i.created_at DESC
                 LIMIT %s
@@ -180,13 +190,13 @@ async def get_issues(
         for row in rows:
             issues.append(IssueResponse(
                 id=row["id"],
-                number=row["number"],
+                number=row["issue_number"],
                 title=row["title"],
-                repository=row["repository"],
+                repository=row["repository_name"],
                 category=row["category"],
                 priority=row["priority"],
-                confidence=row["confidence"],
-                tags=json.loads(row["tags"]) if row["tags"] else [],
+                confidence=row["confidence_score"],
+                tags=row["tags"] if isinstance(row["tags"], list) else [],
                 created_at=row["created_at"].isoformat() if row["created_at"] else "",
                 updated_at=row["updated_at"].isoformat() if row["updated_at"] else "",
                 status="classified" if row["category"] else "pending"
@@ -206,10 +216,10 @@ async def get_issue(issue_id: int):
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
                 SELECT
-                    i.id, i.number, i.title, i.body, i.repository, i.created_at, i.updated_at,
-                    e.category, e.priority, e.confidence, e.tags, e.similar_issues
-                FROM issues i
-                LEFT JOIN enriched_issues e ON i.id = e.issue_id
+                    i.id, i.issue_number, i.title, i.body, i.repository_name, i.created_at, i.updated_at,
+                    e.category, e.priority, e.confidence_score, e.tags
+                FROM auto_triager.issues i
+                LEFT JOIN auto_triager.enriched_issues e ON i.id = e.issue_id
                 WHERE i.id = %s
             """, (issue_id,))
 
@@ -222,13 +232,13 @@ async def get_issue(issue_id: int):
 
         return IssueResponse(
             id=row["id"],
-            number=row["number"],
+            number=row["issue_number"],
             title=row["title"],
-            repository=row["repository"],
+            repository=row["repository_name"],
             category=row["category"],
             priority=row["priority"],
-            confidence=row["confidence"],
-            tags=json.loads(row["tags"]) if row["tags"] else [],
+            confidence=row["confidence_score"],
+            tags=row["tags"] if isinstance(row["tags"], list) else [],
             created_at=row["created_at"].isoformat() if row["created_at"] else "",
             updated_at=row["updated_at"].isoformat() if row["updated_at"] else "",
             status="classified" if row["category"] else "pending"
@@ -248,8 +258,8 @@ async def trigger_classification(issue_id: int):
         conn = psycopg2.connect(DATABASE_URL)
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
-                SELECT id, number, title, body, labels, repository, url, created_at, updated_at, author
-                FROM issues WHERE id = %s
+                SELECT id, issue_number, title, body, labels, repository_name, repository_owner, created_at, updated_at, author
+                FROM auto_triager.issues WHERE id = %s
             """, (issue_id,))
 
             issue_row = cur.fetchone()
@@ -265,12 +275,12 @@ async def trigger_classification(issue_id: int):
 
             issue_data = {
                 "id": issue_row["id"],
-                "number": issue_row["number"],
+                "number": issue_row["issue_number"],
                 "title": issue_row["title"],
                 "body": issue_row["body"] or "",
-                "labels": json.loads(issue_row["labels"]) if issue_row["labels"] else [],
-                "repository": issue_row["repository"],
-                "url": issue_row["url"],
+                "labels": issue_row["labels"] if isinstance(issue_row["labels"], list) else [],
+                "repository": f"{issue_row['repository_owner']}/{issue_row['repository_name']}",
+                "url": f"https://github.com/{issue_row['repository_owner']}/{issue_row['repository_name']}/issues/{issue_row['issue_number']}",
                 "created_at": issue_row["created_at"].isoformat(),
                 "updated_at": issue_row["updated_at"].isoformat(),
                 "author": issue_row["author"]
@@ -312,15 +322,15 @@ async def get_stats():
                     COUNT(*) as total_issues,
                     COUNT(e.issue_id) as classified_issues,
                     COUNT(*) - COUNT(e.issue_id) as pending_issues
-                FROM issues i
-                LEFT JOIN enriched_issues e ON i.id = e.issue_id
+                FROM auto_triager.issues i
+                LEFT JOIN auto_triager.enriched_issues e ON i.id = e.issue_id
             """)
             counts = cur.fetchone()
 
             # Get category breakdown
             cur.execute("""
                 SELECT category, COUNT(*) as count
-                FROM enriched_issues
+                FROM auto_triager.enriched_issues
                 WHERE category IS NOT NULL
                 GROUP BY category
                 ORDER BY count DESC
@@ -330,7 +340,7 @@ async def get_stats():
             # Get priority breakdown
             cur.execute("""
                 SELECT priority, COUNT(*) as count
-                FROM enriched_issues
+                FROM auto_triager.enriched_issues
                 WHERE priority IS NOT NULL
                 GROUP BY priority
                 ORDER BY
@@ -358,6 +368,103 @@ async def get_stats():
     except Exception as e:
         logger.error("Error fetching stats", error=str(e))
         raise HTTPException(status_code=500, detail="Failed to fetch statistics")
+
+@app.post("/api/issues/{issue_id}/correct")
+async def apply_manual_correction(issue_id: int, correction: ManualCorrection):
+    """Apply manual correction to an issue classification"""
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            # Check if issue exists and get enriched_issue_id
+            cur.execute("""
+                SELECT i.id, e.id as enriched_id, e.category, e.priority, e.tags
+                FROM auto_triager.issues i
+                LEFT JOIN auto_triager.enriched_issues e ON i.id = e.issue_id
+                WHERE i.id = %s
+            """, (issue_id,))
+            
+            result = cur.fetchone()
+            if not result:
+                raise HTTPException(status_code=404, detail="Issue not found")
+            
+            enriched_id = result["enriched_id"]
+            if not enriched_id:
+                raise HTTPException(status_code=400, detail="Issue has not been classified yet")
+            
+            # Store manual corrections for changed fields
+            if result["category"] != correction.category:
+                cur.execute("""
+                    INSERT INTO auto_triager.manual_corrections (
+                        enriched_issue_id, field_name, original_value, corrected_value, 
+                        corrected_by, correction_reason
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                """, (
+                    enriched_id, 'category', 
+                    json.dumps(result["category"]), json.dumps(correction.category),
+                    'user', correction.notes or 'Manual correction via gateway'
+                ))
+            
+            if result["priority"] != correction.priority:
+                cur.execute("""
+                    INSERT INTO auto_triager.manual_corrections (
+                        enriched_issue_id, field_name, original_value, corrected_value, 
+                        corrected_by, correction_reason
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                """, (
+                    enriched_id, 'priority', 
+                    json.dumps(result["priority"]), json.dumps(correction.priority),
+                    'user', correction.notes or 'Manual correction via gateway'
+                ))
+            
+            if result["tags"] != correction.tags:
+                cur.execute("""
+                    INSERT INTO auto_triager.manual_corrections (
+                        enriched_issue_id, field_name, original_value, corrected_value, 
+                        corrected_by, correction_reason
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                """, (
+                    enriched_id, 'tags', 
+                    json.dumps(result["tags"]), json.dumps(correction.tags),
+                    'user', correction.notes or 'Manual correction via gateway'
+                ))
+            
+            # Update enriched_issues with manual correction
+            cur.execute("""
+                UPDATE auto_triager.enriched_issues 
+                SET category = %s, priority = %s, tags = %s, updated_at = %s
+                WHERE id = %s
+            """, (
+                correction.category, correction.priority, correction.tags, 
+                datetime.now(), enriched_id
+            ))
+            
+        conn.commit()
+        conn.close()
+        
+        # Broadcast update to connected clients
+        await manager.broadcast(json.dumps({
+            "type": "manual_correction",
+            "data": {
+                "issue_id": issue_id,
+                "category": correction.category,
+                "priority": correction.priority,
+                "tags": correction.tags,
+                "notes": correction.notes,
+                "timestamp": datetime.now().isoformat()
+            }
+        }))
+        
+        logger.info("Applied manual correction", issue_id=issue_id, correction=correction.dict())
+        return {"status": "correction_applied", "issue_id": issue_id}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error applying manual correction", issue_id=issue_id, error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to apply correction")
 
 # Serve static files for development
 @app.get("/")
@@ -407,8 +514,66 @@ async def root():
     </html>
     """)
 
+# Kafka consumer for real-time updates
+async def process_kafka_message(message):
+    """Process a Kafka message and broadcast to WebSocket clients"""
+    try:
+        # Parse the message
+        event_data = json.loads(message.value.decode('utf-8'))
+        
+        # Determine message type and format for WebSocket
+        websocket_message = {
+            "type": "issue_update",
+            "timestamp": datetime.now().isoformat(),
+            "data": event_data
+        }
+        
+        # Broadcast to all connected WebSocket clients
+        await manager.broadcast(json.dumps(websocket_message))
+        
+        logger.info(
+            "Broadcasted Kafka message to WebSocket clients",
+            topic=message.topic,
+            connected_clients=len(manager.active_connections)
+        )
+        
+    except Exception as e:
+        logger.error("Failed to process Kafka message", error=str(e), message=str(message.value))
+
+def kafka_consumer_thread():
+    """Run Kafka consumer in a separate thread"""
+    try:
+        consumer = KafkaConsumer(
+            'issues.enriched',  # Listen for enriched issues
+            'issues.raw',       # Also listen for raw issues
+            bootstrap_servers=[KAFKA_BOOTSTRAP_SERVERS],
+            value_deserializer=lambda m: m,
+            group_id='auto-triager-gateway',
+            auto_offset_reset='latest',  # Only get new messages
+            enable_auto_commit=True,
+            consumer_timeout_ms=1000
+        )
+        
+        logger.info("Gateway Kafka consumer started", topics=['issues.enriched', 'issues.raw'])
+        
+        for message in consumer:
+            try:
+                # Run the async processing in the event loop
+                # Since we're in a thread, we need to use asyncio.run for each message
+                asyncio.run(process_kafka_message(message))
+            except Exception as e:
+                logger.error("Error processing Kafka message in gateway", error=str(e))
+                
+    except Exception as e:
+        logger.error("Gateway Kafka consumer error", error=str(e))
+
 if __name__ == "__main__":
     import uvicorn
+    
+    # Start Kafka consumer in background thread
+    kafka_thread = threading.Thread(target=kafka_consumer_thread, daemon=True)
+    kafka_thread.start()
+    
     uvicorn.run(
         "app:app",
         host="0.0.0.0",
@@ -416,3 +581,7 @@ if __name__ == "__main__":
         reload=True,
         log_config=None
     )
+else:
+    # When running in production (not as main), start Kafka consumer
+    kafka_thread = threading.Thread(target=kafka_consumer_thread, daemon=True)
+    kafka_thread.start()
