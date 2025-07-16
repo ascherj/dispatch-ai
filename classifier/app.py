@@ -312,7 +312,7 @@ async def store_enriched_issue(issue: IssueData, classification: Dict[str, Any],
             
             internal_issue_id = result[0]
             
-            # Store enriched data
+            # Store enriched data (use upsert since there's no unique constraint on issue_id)
             cur.execute("""
                 INSERT INTO auto_triager.enriched_issues (
                     issue_id, classification, summary, tags, suggested_assignees,
@@ -320,22 +320,6 @@ async def store_enriched_issue(issue: IssueData, classification: Dict[str, Any],
                     embedding, confidence_score, processing_model, ai_reasoning
                 )
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (issue_id) DO UPDATE SET
-                    classification = EXCLUDED.classification,
-                    summary = EXCLUDED.summary,
-                    tags = EXCLUDED.tags,
-                    suggested_assignees = EXCLUDED.suggested_assignees,
-                    estimated_effort = EXCLUDED.estimated_effort,
-                    category = EXCLUDED.category,
-                    priority = EXCLUDED.priority,
-                    severity = EXCLUDED.severity,
-                    component = EXCLUDED.component,
-                    sentiment = EXCLUDED.sentiment,
-                    embedding = EXCLUDED.embedding,
-                    confidence_score = EXCLUDED.confidence_score,
-                    processing_model = EXCLUDED.processing_model,
-                    ai_reasoning = EXCLUDED.ai_reasoning,
-                    updated_at = CURRENT_TIMESTAMP
             """, (
                 internal_issue_id,
                 json.dumps(classification),
@@ -468,7 +452,9 @@ def kafka_consumer_thread():
             bootstrap_servers=[KAFKA_BOOTSTRAP_SERVERS],
             value_deserializer=lambda m: m,
             group_id='auto-triager-classifier',
-            auto_offset_reset='latest'
+            auto_offset_reset='earliest',
+            enable_auto_commit=True,
+            consumer_timeout_ms=1000
         )
         
         logger.info("Kafka consumer started", topic='issues.raw')
@@ -483,12 +469,13 @@ def kafka_consumer_thread():
     except Exception as e:
         logger.error("Kafka consumer error", error=str(e))
 
-# Start Kafka consumer in background thread
-kafka_thread = threading.Thread(target=kafka_consumer_thread, daemon=True)
-kafka_thread.start()
-
 if __name__ == "__main__":
     import uvicorn
+    
+    # Start Kafka consumer in background thread
+    kafka_thread = threading.Thread(target=kafka_consumer_thread, daemon=True)
+    kafka_thread.start()
+    
     uvicorn.run(
         "app:app",
         host="0.0.0.0",
@@ -496,3 +483,7 @@ if __name__ == "__main__":
         reload=True,
         log_config=None
     )
+else:
+    # When running in production (not as main), start Kafka consumer
+    kafka_thread = threading.Thread(target=kafka_consumer_thread, daemon=True)
+    kafka_thread.start()

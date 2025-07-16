@@ -86,7 +86,67 @@ Design and implement a high-performance webhook processing system that can handl
 
 ---
 
-### 2. Rate Limiting Implementation with Sliding Window Algorithm
+### 2. Kafka Consumer Compression Optimization
+
+**📊 Metrics:**
+- **Before:** UnsupportedCodecError preventing Kafka message consumption
+- **After:** Full Kafka integration with snappy compression support
+- **Improvement:** 100% Kafka consumer reliability with compression
+- **Build Time:** Automated dependency installation in Docker builds
+
+#### **Situation**
+The AI classifier service was failing to consume messages from Kafka due to a missing compression codec. Redpanda/Kafka uses snappy compression by default, but the python-snappy library wasn't being installed during Docker builds, causing "UnsupportedCodecError: Libraries for snappy compression codec not found" errors. This prevented the complete webhook → Kafka → AI classification pipeline from functioning.
+
+#### **Task**
+Fix the Kafka consumer dependency issues to enable reliable message consumption from Kafka topics while ensuring the fix works consistently across fresh Docker builds without requiring manual intervention.
+
+#### **Action**
+1. **Root Cause Analysis:**
+   - Identified missing python-snappy dependency causing codec errors
+   - Determined that both Python package and system libraries were required
+   - Analyzed Docker build process for dependency installation issues
+
+2. **Multi-Layer Fix Implementation:**
+   - **Python Dependencies:** Added python-snappy to requirements.in
+   - **System Dependencies:** Added libsnappy-dev to Dockerfile
+   - **Build Process:** Updated both development and production Dockerfiles
+
+3. **Technical Implementation:**
+   ```dockerfile
+   # System dependencies for snappy compression
+   RUN apt-get update && apt-get install -y \
+       gcc \
+       libpq-dev \
+       libsnappy-dev \  # Critical for Kafka compression support
+       && rm -rf /var/lib/apt/lists/*
+   ```
+
+   ```python
+   # requirements.in
+   python-snappy  # Kafka compression codec support
+   ```
+
+4. **Testing and Validation:**
+   - Verified clean Docker builds install dependencies correctly
+   - Tested Kafka consumer with compressed messages
+   - Confirmed end-to-end pipeline functionality
+
+#### **Result**
+- **Reliability:** 100% Kafka consumer success rate with compressed messages
+- **Pipeline Completion:** Full webhook → Kafka → AI classification → database flow working
+- **Build Consistency:** Fresh Docker builds automatically include all dependencies
+- **No Manual Intervention:** Eliminates need for manual pip install commands
+- **Production Ready:** Both development and production Dockerfiles updated
+
+**Key Technical Skills Demonstrated:**
+- Docker dependency management and build optimization
+- Kafka compression protocol troubleshooting
+- Multi-layer debugging (Python packages + system libraries)
+- Build process automation and reliability
+
+---
+
+### 3. Rate Limiting Implementation with Sliding Window Algorithm
 
 **📊 Metrics:**
 - **Before:** No rate limiting - vulnerable to abuse

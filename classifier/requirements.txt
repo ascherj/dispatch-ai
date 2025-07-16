@@ -29,6 +29,8 @@ charset-normalizer==3.4.2
     # via requests
 click==8.2.1
     # via uvicorn
+cramjam==2.10.0
+    # via python-snappy
 dataclasses-json==0.6.7
     # via langchain-community
 distro==1.9.0
@@ -155,6 +157,8 @@ python-dotenv==1.1.0
     #   -r requirements.in
     #   pydantic-settings
     #   uvicorn
+python-snappy==0.7.3
+    # via -r requirements.in
 pyyaml==6.0.2
     # via
     #   langchain
