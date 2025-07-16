@@ -1,7 +1,7 @@
 # Auto-Triager Development Makefile
 # Provides targets for development, testing, linting, and deployment
 
-.PHONY: help dev dev-up dev-down dev-logs dev-clean test test-ingress test-classifier test-gateway test-dashboard lint lint-python lint-js clean build deploy-fly setup-env check-env
+.PHONY: help dev dev-up dev-down dev-logs dev-clean test test-docker test-ingress test-classifier test-gateway test-dashboard test-classifier-docker test-gateway-docker test-dashboard-docker lint lint-python lint-js clean build deploy-fly setup-env check-env check-containers test-webhook-manual
 
 # Default target
 help: ## Show this help message
@@ -56,6 +56,17 @@ check-services: ## Check if all services are healthy
 	@echo -n "Redpanda: "
 	@curl -s http://localhost:9644/v1/cluster/health >/dev/null 2>&1 && echo "✅ Ready" || echo "❌ Not Ready"
 
+check-containers: ## Check if all containers are running
+	@echo "Checking containers..."
+	@echo -n "Ingress: "
+	@docker ps --format "table {{.Names}}" | grep -q "auto-triager-ingress" && echo "✅ Running" || echo "❌ Not Running"
+	@echo -n "Classifier: "
+	@docker ps --format "table {{.Names}}" | grep -q "auto-triager-classifier" && echo "✅ Running" || echo "❌ Not Running"
+	@echo -n "Gateway: "
+	@docker ps --format "table {{.Names}}" | grep -q "auto-triager-gateway" && echo "✅ Running" || echo "❌ Not Running"
+	@echo -n "Dashboard: "
+	@docker ps --format "table {{.Names}}" | grep -q "auto-triager-dashboard" && echo "✅ Running" || echo "❌ Not Running"
+
 # Testing
 test: ## Run all tests
 	@echo "Running all tests..."
@@ -64,36 +75,90 @@ test: ## Run all tests
 	@make test-gateway
 	@make test-dashboard
 
+test-docker: ## Run all tests in Docker containers (requires dev environment)
+	@echo "Running all tests in Docker containers..."
+	@make check-containers
+	@make test-ingress
+	@make test-classifier-docker
+	@make test-gateway-docker
+	@make test-dashboard-docker
+
 test-ingress: ## Run ingress component tests
 	@echo "Testing ingress component..."
-	@if [ -f ingress/requirements.txt ]; then \
-		cd ingress && python -m pytest tests/ -v; \
+	@if docker ps --format "table {{.Names}}" | grep -q "auto-triager-ingress"; then \
+		echo "Running tests in Docker container..."; \
+		docker exec auto-triager-ingress python -m pytest test_webhook.py -v; \
 	else \
-		echo "⚠️  Ingress tests not yet implemented"; \
+		echo "❌ Ingress container not running. Start with 'make dev' first"; \
+		exit 1; \
 	fi
 
-test-classifier: ## Run classifier component tests
-	@echo "Testing classifier component..."
+test-classifier: ## Run classifier component tests (local)
+	@echo "Testing classifier component locally..."
 	@if [ -f classifier/requirements.txt ]; then \
 		cd classifier && python -m pytest tests/ -v; \
 	else \
 		echo "⚠️  Classifier tests not yet implemented"; \
 	fi
 
-test-gateway: ## Run gateway component tests
-	@echo "Testing gateway component..."
+test-classifier-docker: ## Run classifier component tests in Docker
+	@echo "Testing classifier component in Docker..."
+	@if docker ps --format "table {{.Names}}" | grep -q "auto-triager-classifier"; then \
+		if docker exec auto-triager-classifier find . -name "test*.py" -o -name "*test.py" | grep -q .; then \
+			docker exec auto-triager-classifier python -m pytest -v; \
+		else \
+			echo "⚠️  No test files found in classifier container"; \
+		fi; \
+	else \
+		echo "❌ Classifier container not running. Start with 'make dev' first"; \
+	fi
+
+test-gateway: ## Run gateway component tests (local)
+	@echo "Testing gateway component locally..."
 	@if [ -f gateway/requirements.txt ]; then \
 		cd gateway && python -m pytest tests/ -v; \
 	else \
 		echo "⚠️  Gateway tests not yet implemented"; \
 	fi
 
-test-dashboard: ## Run dashboard component tests
-	@echo "Testing dashboard component..."
+test-gateway-docker: ## Run gateway component tests in Docker
+	@echo "Testing gateway component in Docker..."
+	@if docker ps --format "table {{.Names}}" | grep -q "auto-triager-gateway"; then \
+		if docker exec auto-triager-gateway find . -name "test*.py" -o -name "*test.py" | grep -q .; then \
+			docker exec auto-triager-gateway python -m pytest -v; \
+		else \
+			echo "⚠️  No test files found in gateway container"; \
+		fi; \
+	else \
+		echo "❌ Gateway container not running. Start with 'make dev' first"; \
+	fi
+
+test-dashboard: ## Run dashboard component tests (local)
+	@echo "Testing dashboard component locally..."
 	@if [ -f dashboard/package.json ]; then \
 		cd dashboard && npm test; \
 	else \
 		echo "⚠️  Dashboard tests not yet implemented"; \
+	fi
+
+test-dashboard-docker: ## Run dashboard component tests in Docker
+	@echo "Testing dashboard component in Docker..."
+	@if docker ps --format "table {{.Names}}" | grep -q "auto-triager-dashboard"; then \
+		if docker exec auto-triager-dashboard test -f package.json; then \
+			docker exec auto-triager-dashboard npm test; \
+		else \
+			echo "⚠️  No package.json found in dashboard container"; \
+		fi; \
+	else \
+		echo "❌ Dashboard container not running. Start with 'make dev' first"; \
+	fi
+
+test-webhook-manual: ## Run manual webhook testing script
+	@echo "Running manual webhook tests..."
+	@if [ -f scripts/test-webhook-manual.sh ]; then \
+		./scripts/test-webhook-manual.sh; \
+	else \
+		echo "❌ Manual test script not found at scripts/test-webhook-manual.sh"; \
 	fi
 
 # Linting
