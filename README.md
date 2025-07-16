@@ -302,7 +302,7 @@ We welcome contributions! Here's how to get started:
 
 - **🐛 Bug Reports**: [GitHub Issues](https://github.com/your-org/auto-triager/issues)
 - **💡 Feature Requests**: [GitHub Discussions](https://github.com/your-org/auto-triager/discussions)
-- **📖 Documentation**: [Full Developer Guide](./DEVELOPMENT.md)
+- **📖 Documentation**: [Full Developer Guide](./docs/DEVELOPMENT.md)
 - **🔧 Configuration Help**: [CLAUDE.md](./CLAUDE.md) - AI Assistant Guidelines
 
 ---

@@ -377,3 +377,7 @@ Follow conventional commit format as defined in project rules. The system uses s
 - Use descriptive commit messages following conventional commit format
 - Run `make lint` and `make test` before each commit
 - Reference relevant issue or task numbers when applicable
+
+## Project Optimization Tracking
+
+- Remember to auto-update @docs/PERFORMANCE_OPTIMIZATION_TRACKER.md on-the-fly as new optimizations are made
