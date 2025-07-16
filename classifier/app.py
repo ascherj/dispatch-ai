@@ -15,9 +15,12 @@ from psycopg2.extras import RealDictCursor
 import numpy as np
 
 from langchain.prompts import PromptTemplate
-from langchain_openai import ChatOpenAI
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain.schema import HumanMessage
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from kafka import KafkaConsumer, KafkaProducer
+import asyncio
+import threading
 
 # Configure structured logging
 structlog.configure(
@@ -77,13 +80,20 @@ class HealthResponse(BaseModel):
 # Environment configuration
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@postgres:5432/auto_triager")
+KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "redpanda:9092")
 GATEWAY_SERVICE_URL = os.getenv("GATEWAY_SERVICE_URL", "http://gateway:8002")
 
 # Initialize LangChain components
 llm = ChatOpenAI(
-    model="gpt-3.5-turbo",
+    model="gpt-4o-mini",  # Better reasoning, cheaper than gpt-3.5-turbo
     temperature=0.1,
     openai_api_key=OPENAI_API_KEY
+) if OPENAI_API_KEY else None
+
+# Initialize OpenAI embeddings
+embeddings = OpenAIEmbeddings(
+    openai_api_key=OPENAI_API_KEY,
+    model="text-embedding-3-small"  # Better performance, cheaper than ada-002
 ) if OPENAI_API_KEY else None
 
 # Classification prompt template
@@ -120,7 +130,7 @@ async def health_check():
         status="healthy" if llm else "degraded",
         service="classifier",
         version="0.1.0",
-        ai_model="gpt-3.5-turbo" if llm else "none"
+        ai_model="gpt-4o-mini" if llm else "none"
     )
 
 @app.post("/classify", response_model=ClassificationResult)
@@ -149,11 +159,14 @@ async def classify_issue(issue: IssueData):
             # AI-powered classification
             classification = await ai_classification(issue)
 
+        # Generate embeddings
+        embedding = await generate_embedding(issue)
+
         # Find similar issues
-        similar_issues = await find_similar_issues(issue)
+        similar_issues = await find_similar_issues(issue, embedding)
 
         # Store enriched issue
-        await store_enriched_issue(issue, classification, similar_issues)
+        await store_enriched_issue(issue, classification, similar_issues, embedding)
 
         processing_time = (datetime.now() - start_time).total_seconds() * 1000
 
@@ -260,64 +273,138 @@ async def store_raw_issue(issue: IssueData):
         conn = psycopg2.connect(DATABASE_URL)
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO issues (id, number, title, body, labels, repository, url, created_at, updated_at, author, raw_data)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (id) DO UPDATE SET
+                INSERT INTO auto_triager.issues (
+                    github_issue_id, repository_name, repository_owner, issue_number,
+                    title, body, state, labels, assignees, author, created_at, updated_at, raw_data
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (github_issue_id) DO UPDATE SET
                     title = EXCLUDED.title,
                     body = EXCLUDED.body,
                     labels = EXCLUDED.labels,
                     updated_at = EXCLUDED.updated_at,
                     raw_data = EXCLUDED.raw_data
             """, (
-                issue.id, issue.number, issue.title, issue.body,
-                json.dumps(issue.labels), issue.repository, issue.url,
-                issue.created_at, issue.updated_at, issue.author,
-                json.dumps(issue.dict())
+                issue.id, issue.repository.split('/')[-1], issue.repository.split('/')[0],
+                issue.number, issue.title, issue.body, 'open',
+                json.dumps(issue.labels), json.dumps([]), issue.author,
+                issue.created_at, issue.updated_at, json.dumps(issue.dict())
             ))
         conn.commit()
         conn.close()
     except Exception as e:
         logger.error("Failed to store raw issue", issue_id=issue.id, error=str(e))
 
-async def store_enriched_issue(issue: IssueData, classification: Dict[str, Any], similar_issues: List[Dict[str, Any]]):
+async def store_enriched_issue(issue: IssueData, classification: Dict[str, Any], similar_issues: List[Dict[str, Any]], embedding: Optional[List[float]] = None):
     """Store enriched issue with classification results"""
     try:
         conn = psycopg2.connect(DATABASE_URL)
         with conn.cursor() as cur:
+            # First, get the internal issue ID from the issues table
             cur.execute("""
-                INSERT INTO enriched_issues (issue_id, category, priority, confidence, tags, similar_issues, enriched_at)
-                VALUES (%s, %s, %s, %s, %s, %s, NOW())
+                SELECT id FROM auto_triager.issues 
+                WHERE github_issue_id = %s
+            """, (issue.id,))
+            result = cur.fetchone()
+            if not result:
+                logger.error("Issue not found in database", github_issue_id=issue.id)
+                return
+            
+            internal_issue_id = result[0]
+            
+            # Store enriched data
+            cur.execute("""
+                INSERT INTO auto_triager.enriched_issues (
+                    issue_id, classification, summary, tags, suggested_assignees,
+                    estimated_effort, category, priority, severity, component, sentiment,
+                    embedding, confidence_score, processing_model, ai_reasoning
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (issue_id) DO UPDATE SET
+                    classification = EXCLUDED.classification,
+                    summary = EXCLUDED.summary,
+                    tags = EXCLUDED.tags,
+                    suggested_assignees = EXCLUDED.suggested_assignees,
+                    estimated_effort = EXCLUDED.estimated_effort,
                     category = EXCLUDED.category,
                     priority = EXCLUDED.priority,
-                    confidence = EXCLUDED.confidence,
-                    tags = EXCLUDED.tags,
-                    similar_issues = EXCLUDED.similar_issues,
-                    enriched_at = EXCLUDED.enriched_at
+                    severity = EXCLUDED.severity,
+                    component = EXCLUDED.component,
+                    sentiment = EXCLUDED.sentiment,
+                    embedding = EXCLUDED.embedding,
+                    confidence_score = EXCLUDED.confidence_score,
+                    processing_model = EXCLUDED.processing_model,
+                    ai_reasoning = EXCLUDED.ai_reasoning,
+                    updated_at = CURRENT_TIMESTAMP
             """, (
-                issue.id, classification["category"], classification["priority"],
-                classification["confidence"], json.dumps(classification["tags"]),
-                json.dumps(similar_issues)
+                internal_issue_id,
+                json.dumps(classification),
+                classification.get("summary", ""),
+                classification.get("tags", []),
+                classification.get("suggested_assignees", []),
+                classification.get("estimated_effort", "medium"),
+                classification.get("category", "unknown"),
+                classification.get("priority", "medium"),
+                classification.get("severity", "minor"),
+                classification.get("component", "unknown"),
+                classification.get("sentiment", "neutral"),
+                embedding,
+                classification.get("confidence", 0.0),
+                "gpt-4o-mini",
+                classification.get("reasoning", "")
             ))
         conn.commit()
         conn.close()
     except Exception as e:
         logger.error("Failed to store enriched issue", issue_id=issue.id, error=str(e))
 
-async def find_similar_issues(issue: IssueData) -> List[Dict[str, Any]]:
-    """Find similar issues using basic text similarity"""
+async def generate_embedding(issue: IssueData) -> Optional[List[float]]:
+    """Generate OpenAI embedding for the issue"""
+    try:
+        if not embeddings:
+            return None
+        
+        # Combine title and body for embedding
+        text = f"{issue.title}\n\n{issue.body[:2000]}"  # Limit to avoid token limits
+        
+        # Generate embedding
+        embedding_vector = await asyncio.get_event_loop().run_in_executor(
+            None, embeddings.embed_query, text
+        )
+        
+        return embedding_vector
+    
+    except Exception as e:
+        logger.error("Failed to generate embedding", issue_id=issue.id, error=str(e))
+        return None
+
+async def find_similar_issues(issue: IssueData, issue_embedding: Optional[List[float]] = None) -> List[Dict[str, Any]]:
+    """Find similar issues using vector similarity search"""
     try:
         conn = psycopg2.connect(DATABASE_URL)
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            # Simple similarity search based on title and repository
-            cur.execute("""
-                SELECT id, number, title, repository,
-                       similarity(title, %s) as title_similarity
-                FROM issues
-                WHERE repository = %s AND id != %s
-                ORDER BY title_similarity DESC
-                LIMIT 5
-            """, (issue.title, issue.repository, issue.id))
+            if issue_embedding:
+                # Vector similarity search
+                cur.execute("""
+                    SELECT i.id, i.issue_number, i.title, i.repository_name,
+                           ei.embedding <-> %s as similarity_distance
+                    FROM auto_triager.issues i
+                    JOIN auto_triager.enriched_issues ei ON i.id = ei.issue_id
+                    WHERE i.repository_name = %s AND i.github_issue_id != %s
+                    AND ei.embedding IS NOT NULL
+                    ORDER BY similarity_distance ASC
+                    LIMIT 5
+                """, (issue_embedding, issue.repository.split('/')[-1], issue.id))
+            else:
+                # Fallback to text similarity
+                cur.execute("""
+                    SELECT i.id, i.issue_number, i.title, i.repository_name,
+                           similarity(i.title, %s) as title_similarity
+                    FROM auto_triager.issues i
+                    WHERE i.repository_name = %s AND i.github_issue_id != %s
+                    ORDER BY title_similarity DESC
+                    LIMIT 5
+                """, (issue.title, issue.repository.split('/')[-1], issue.id))
 
             similar = cur.fetchall()
 
@@ -326,16 +413,79 @@ async def find_similar_issues(issue: IssueData) -> List[Dict[str, Any]]:
         return [
             {
                 "id": row["id"],
-                "number": row["number"],
+                "number": row["issue_number"],
                 "title": row["title"],
-                "similarity": float(row["title_similarity"]) if row["title_similarity"] else 0.0
+                "similarity": float(1 - row["similarity_distance"]) if issue_embedding and row["similarity_distance"] else float(row.get("title_similarity", 0.0))
             }
-            for row in similar if row["title_similarity"] and row["title_similarity"] > 0.3
+            for row in similar 
+            if (issue_embedding and row["similarity_distance"] and row["similarity_distance"] < 0.5) or 
+               (not issue_embedding and row.get("title_similarity", 0) > 0.3)
         ]
 
     except Exception as e:
         logger.error("Failed to find similar issues", error=str(e))
         return []
+
+# Kafka consumer for processing issue events
+async def process_kafka_message(message):
+    """Process a Kafka message containing issue data"""
+    try:
+        # Parse the message
+        issue_data = json.loads(message.value.decode('utf-8'))
+        
+        # Convert to IssueData model
+        issue = IssueData(
+            id=issue_data.get('issue', {}).get('id'),
+            number=issue_data.get('issue', {}).get('number'),
+            title=issue_data.get('issue', {}).get('title', ''),
+            body=issue_data.get('issue', {}).get('body', ''),
+            labels=[label.get('name', '') for label in issue_data.get('issue', {}).get('labels', [])],
+            repository=issue_data.get('repository', {}).get('full_name', ''),
+            url=issue_data.get('issue', {}).get('html_url', ''),
+            created_at=issue_data.get('issue', {}).get('created_at', ''),
+            updated_at=issue_data.get('issue', {}).get('updated_at', ''),
+            author=issue_data.get('issue', {}).get('user', {}).get('login', '')
+        )
+        
+        # Process the issue
+        await classify_issue(issue)
+        
+        logger.info(
+            "Processed Kafka message",
+            issue_id=issue.id,
+            issue_number=issue.number,
+            repository=issue.repository
+        )
+        
+    except Exception as e:
+        logger.error("Failed to process Kafka message", error=str(e), message=message.value)
+
+def kafka_consumer_thread():
+    """Run Kafka consumer in a separate thread"""
+    try:
+        consumer = KafkaConsumer(
+            'issues.raw',
+            bootstrap_servers=[KAFKA_BOOTSTRAP_SERVERS],
+            value_deserializer=lambda m: m,
+            group_id='auto-triager-classifier',
+            auto_offset_reset='latest'
+        )
+        
+        logger.info("Kafka consumer started", topic='issues.raw')
+        
+        for message in consumer:
+            try:
+                # Run the async processing in the event loop
+                asyncio.run(process_kafka_message(message))
+            except Exception as e:
+                logger.error("Error processing Kafka message", error=str(e))
+                
+    except Exception as e:
+        logger.error("Kafka consumer error", error=str(e))
+
+# Start Kafka consumer in background thread
+kafka_thread = threading.Thread(target=kafka_consumer_thread, daemon=True)
+kafka_thread.start()
 
 if __name__ == "__main__":
     import uvicorn
