@@ -2,7 +2,7 @@
 
 This document tracks which features mentioned in README.md are implemented vs. aspirational.
 
-## ✅ Currently Implemented (Task 1 Complete)
+## ✅ Currently Implemented (Tasks 1-3 Complete)
 
 ### Infrastructure & Development Environment
 - [x] **Docker Compose** development environment
@@ -18,15 +18,19 @@ This document tracks which features mentioned in README.md are implemented vs. a
 
 ### Development Workflow
 - [x] `make dev` - One-command startup
-- [x] `make test` - Testing framework
+- [x] `make test` - Testing framework with Docker support
 - [x] `make lint` - Linting for Python (ruff) and TypeScript (eslint)
 - [x] `make status` - Service health checking
 - [x] `make db-reset` - Database management
+- [x] `make test-webhook-manual` - Manual webhook testing
+- [x] `make kafka-topics` - Kafka topic management
 
-## ❌ Not Yet Implemented (Mentioned in README)
-
-### Core Application Logic (All Pending)
-- [ ] **GitHub webhook receiver** with signature validation
+### Core Application Logic (Partially Complete)
+- [x] **GitHub webhook receiver** with signature validation
+- [x] **Event streaming** to Kafka/Redpanda
+- [x] **Webhook payload validation** and error handling
+- [x] **Rate limiting** implementation
+- [x] **Comprehensive testing** with real HTTP requests
 - [ ] **AI classification service** using LangChain + OpenAI
 - [ ] **Real-time WebSocket updates**
 - [ ] **Interactive dashboard** with correction interface
@@ -34,8 +38,10 @@ This document tracks which features mentioned in README.md are implemented vs. a
 - [ ] **Issue clustering visualization**
 
 ### Security Features
-- [ ] **GitHub signature validation**
-- [ ] **Rate limiting** implementation
+- [x] **GitHub signature validation** with HMAC-SHA256
+- [x] **Rate limiting** with sliding window algorithm
+- [x] **Request validation** and sanitization
+- [x] **Structured logging** with security events
 - [ ] **Authentication & authorization**
 - [ ] **Audit logging**
 
@@ -78,8 +84,8 @@ This document tracks which features mentioned in README.md are implemented vs. a
 ## 🔄 Mapping to Existing Task System
 
 ### Immediate Implementation (Tasks 2-5)
-- **Task 2**: FastAPI webhook receiver → Implements GitHub webhook processing
-- **Task 3**: Kafka integration → Implements event streaming
+- **Task 2**: ✅ FastAPI webhook receiver → Implements GitHub webhook processing
+- **Task 3**: ✅ Kafka integration → Implements event streaming
 - **Task 4**: Database schema → Enables vector similarity search foundation
 - **Task 5**: LangChain classifier → Implements AI classification service
 
@@ -122,7 +128,7 @@ This document tracks which features mentioned in README.md are implemented vs. a
 ## 📊 Implementation Priority
 
 ### Critical Path (Enables Core Value)
-1. GitHub webhook processing (Task 2)
+1. ✅ GitHub webhook processing (Task 2)
 2. AI classification (Task 5) 
 3. Real-time updates (Task 7)
 4. Basic correction interface (Task 8)
