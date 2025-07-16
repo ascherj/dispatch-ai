@@ -1,7 +1,7 @@
 # Auto-Triager Development Makefile
 # Provides targets for development, testing, linting, and deployment
 
-.PHONY: help dev dev-up dev-down dev-logs dev-clean test test-docker test-ingress test-classifier test-gateway test-dashboard test-classifier-docker test-gateway-docker test-dashboard-docker lint lint-python lint-js clean build deploy-fly setup-env check-env check-containers test-webhook-manual
+.PHONY: help dev dev-up dev-down dev-logs dev-clean test test-docker test-ingress test-classifier test-gateway test-dashboard test-classifier-docker test-gateway-docker test-dashboard-docker lint lint-python lint-js clean build deploy-fly setup-env check-env check-containers test-webhook-manual kafka-tail
 
 # Default target
 help: ## Show this help message
@@ -235,8 +235,13 @@ kafka-create-topics: ## Create required Kafka topics
 	docker exec auto-triager-redpanda rpk topic create issues.enriched --partitions 3 --replicas 1
 	@echo "Topics created successfully"
 
-kafka-console: ## Open Kafka console consumer (usage: make kafka-console TOPIC=issues.raw)
-	docker exec -it auto-triager-redpanda rpk topic consume $(TOPIC)
+kafka-console: ## Consume recent messages from Kafka topic (usage: make kafka-console TOPIC=issues.raw)
+	docker exec auto-triager-redpanda rpk topic consume $(TOPIC) --num 10 --offset start
+
+kafka-tail: ## Tail Kafka topic messages interactively (usage: make kafka-tail TOPIC=issues.raw)
+	@echo "Tailing messages from topic: $(TOPIC)"
+	@echo "Press Ctrl+C to stop"
+	docker exec -it auto-triager-redpanda rpk topic consume $(TOPIC) --follow
 
 # Environment Setup
 setup-env: ## Set up development environment files
