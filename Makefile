@@ -218,7 +218,36 @@ db-reset: ## Reset the database with fresh schema
 	@echo "Database reset complete"
 
 db-shell: ## Open PostgreSQL shell
-	docker exec -it auto-triager-postgres psql -U postgres -d auto_triager
+	@echo "Opening PostgreSQL shell..."
+	@if [ -t 0 ]; then \
+		docker exec -it auto-triager-postgres psql -U postgres -d auto_triager; \
+	else \
+		echo "❌ No TTY available. Use 'make db-query SQL=\"SELECT * FROM auto_triager.issues;\"' instead"; \
+		echo "Or run directly: docker exec -it auto-triager-postgres psql -U postgres -d auto_triager"; \
+	fi
+
+db-query: ## Run SQL query (usage: make db-query SQL="SELECT * FROM auto_triager.issues;")
+	@if [ -z "$(SQL)" ]; then \
+		echo "❌ Usage: make db-query SQL=\"SELECT * FROM auto_triager.issues;\""; \
+		echo "Examples:"; \
+		echo "  make db-query SQL=\"SELECT * FROM auto_triager.issues;\""; \
+		echo "  make db-query SQL=\"SELECT COUNT(*) FROM auto_triager.enriched_issues;\""; \
+		echo "  make db-query SQL=\"\\dt auto_triager.*\""; \
+	else \
+		docker exec auto-triager-postgres psql -U postgres -d auto_triager -c "$(SQL)"; \
+	fi
+
+db-tables: ## List all tables in the database
+	@echo "Tables in auto_triager schema:"
+	@docker exec auto-triager-postgres psql -U postgres -d auto_triager -c "SELECT table_name FROM information_schema.tables WHERE table_schema = 'auto_triager' ORDER BY table_name;"
+
+db-issues: ## Show all issues in the database
+	@echo "Issues in database:"
+	@docker exec auto-triager-postgres psql -U postgres -d auto_triager -c "SELECT id, issue_number, title, author, author_association, created_at FROM auto_triager.issues ORDER BY created_at DESC;"
+
+db-enriched: ## Show enriched issues in the database
+	@echo "Enriched issues in database:"
+	@docker exec auto-triager-postgres psql -U postgres -d auto_triager -c "SELECT id, issue_id, category, priority, confidence_score, processed_at FROM auto_triager.enriched_issues ORDER BY processed_at DESC;"
 
 db-backup: ## Backup the database
 	@echo "Creating database backup..."
