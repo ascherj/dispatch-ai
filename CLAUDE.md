@@ -378,6 +378,6 @@ Follow conventional commit format as defined in project rules. The system uses s
 - Run `make lint` and `make test` before each commit
 - Reference relevant issue or task numbers when applicable
 
-## Project Optimization Tracking
+## Project Achievement Tracking
 
-- Remember to auto-update @docs/PERFORMANCE_OPTIMIZATION_TRACKER.md on-the-fly as new optimizations are made
+- Remember to auto-update @docs/TECHNICAL_ACHIEVEMENTS.md on-the-fly as new technical achievements are made

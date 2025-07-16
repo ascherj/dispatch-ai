@@ -1,7 +1,7 @@
-# Performance Optimization Tracker
+# Technical Achievements Portfolio
 
 ## Overview
-This document tracks performance improvements made to the Auto-Triager application, formatted in STAR (Situation, Task, Action, Result) format for interview storytelling.
+This document showcases technical accomplishments and system implementation achievements for the Auto-Triager application, formatted in STAR (Situation, Task, Action, Result) format for interview storytelling and professional development documentation.
 
 **Project Context:**
 - **Tech Stack:** FastAPI, React 19, TypeScript, PostgreSQL, Kafka/Redpanda, Docker
@@ -11,7 +11,7 @@ This document tracks performance improvements made to the Auto-Triager applicati
 
 ---
 
-## 🚀 Performance Optimization Stories
+## 🚀 Technical Achievement Stories
 
 ### 1. FastAPI Webhook Processing Optimization
 
