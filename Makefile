@@ -110,7 +110,7 @@ test-ingress-local: ## Run ingress component tests locally
 
 test-classifier: ## Run classifier component tests (local)
 	@echo "Testing classifier component locally..."
-	@if [ -f classifier/requirements.txt ]; then \
+	@if [ -f classifier/requirements.txt ] && [ -d classifier/tests ]; then \
 		cd classifier && python -m pytest tests/ -v; \
 	else \
 		echo "⚠️  Classifier tests not yet implemented"; \
@@ -130,7 +130,7 @@ test-classifier-docker: ## Run classifier component tests in Docker
 
 test-gateway: ## Run gateway component tests (local)
 	@echo "Testing gateway component locally..."
-	@if [ -f gateway/requirements.txt ]; then \
+	@if [ -f gateway/requirements.txt ] && [ -d gateway/tests ]; then \
 		cd gateway && python -m pytest tests/ -v; \
 	else \
 		echo "⚠️  Gateway tests not yet implemented"; \

@@ -13,6 +13,18 @@ This document tracks all bugs encountered during development, their root causes,
 
 ## Active Bugs
 
+### BUG-006: CI/CD Pipeline Classifier Tests Directory Missing
+- **Symptom**: `ERROR: file or directory not found: tests/` in GitHub Actions CI
+- **Root Cause**: Makefile tries to run `pytest tests/` but `tests/` directory doesn't exist in classifier service
+- **Resolution**: Update Makefile to check for both `requirements.txt` AND `tests/` directory existence
+- **Status**: ✅ Fixed
+- **Impact**: High - CI/CD pipeline failing
+- **Date**: July 17, 2025
+- **Fix Applied**: 
+  - Updated `test-classifier` target: `@if [ -f classifier/requirements.txt ] && [ -d classifier/tests ]; then`
+  - Updated `test-gateway` target: `@if [ -f gateway/requirements.txt ] && [ -d gateway/tests ]; then`
+- **Prevention**: Create placeholder test directories or improve test target logic
+
 ### BUG-003: Vector Similarity Search Type Error
 - **Symptom**: `operator does not exist: vector <-> numeric[]`
 - **Root Cause**: Embedding data type mismatch in similarity search queries
