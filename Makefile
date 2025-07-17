@@ -1,7 +1,7 @@
 # Auto-Triager Development Makefile
 # Provides targets for development, testing, linting, and deployment
 
-.PHONY: help dev dev-up dev-down dev-logs dev-clean test test-docker test-ingress test-classifier test-gateway test-dashboard test-classifier-docker test-gateway-docker test-dashboard-docker lint lint-python lint-js clean build deploy-fly setup-env check-env check-containers test-webhook-manual kafka-tail
+.PHONY: help dev dev-up dev-down dev-logs dev-clean test test-docker test-ingress test-classifier test-gateway test-dashboard test-classifier-docker test-gateway-docker test-dashboard-docker lint lint-python lint-python-docker lint-js clean build deploy-fly setup-env check-env check-containers test-webhook-manual kafka-tail
 
 # Default target
 help: ## Show this help message
@@ -184,11 +184,31 @@ lint: ## Run all linters
 
 lint-python: ## Run Python linters (ruff)
 	@echo "Linting Python code..."
+	@if ! command -v ruff >/dev/null 2>&1; then \
+		echo "❌ ruff not found. Install with: pip install ruff"; \
+		echo "   Or use Docker-based linting: make lint-python-docker"; \
+		exit 1; \
+	fi
 	@for dir in ingress classifier gateway; do \
 		if [ -f $$dir/requirements.txt ]; then \
 			echo "Linting $$dir..."; \
-			cd $$dir && ruff check . && ruff format --check .; \
-			cd ..; \
+			(cd $$dir && ruff check . && ruff format --check .); \
+		else \
+			echo "⚠️  $$dir not yet set up for linting"; \
+		fi; \
+	done
+
+lint-python-docker: ## Run Python linters in Docker containers
+	@echo "Linting Python code in Docker containers..."
+	@for dir in ingress classifier gateway; do \
+		if [ -f $$dir/requirements.txt ]; then \
+			echo "Linting $$dir in Docker..."; \
+			if docker ps --format "table {{.Names}}" | grep -q "auto-triager-$$dir"; then \
+				docker exec auto-triager-$$dir ruff check . && \
+				docker exec auto-triager-$$dir ruff format --check .; \
+			else \
+				echo "⚠️  $$dir container not running. Start with 'make dev' first"; \
+			fi; \
 		else \
 			echo "⚠️  $$dir not yet set up for linting"; \
 		fi; \

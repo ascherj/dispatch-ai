@@ -19,3 +19,6 @@ python-snappy
 # Test dependencies  
 pytest>=8.2.2
 pytest-asyncio>=0.23.7
+
+# Development dependencies
+ruff

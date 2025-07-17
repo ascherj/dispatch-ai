@@ -176,6 +176,8 @@ requests==2.32.4
     #   tiktoken
 requests-toolbelt==1.0.0
     # via langsmith
+ruff==0.12.3
+    # via -r requirements.in
 scikit-learn==1.6.0
     # via -r requirements.in
 scipy==1.15.3

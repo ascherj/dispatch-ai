@@ -28,3 +28,6 @@ httpx
 # Test dependencies
 pytest
 pytest-asyncio
+
+# Development dependencies
+ruff
