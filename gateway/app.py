@@ -310,6 +310,18 @@ async def trigger_classification(issue_id: int):
         logger.error("Error triggering classification", issue_id=issue_id, error=str(e))
         raise HTTPException(status_code=500, detail="Failed to trigger classification")
 
+@app.post("/api/test/websocket")
+async def test_websocket():
+    """Test endpoint to trigger WebSocket broadcast"""
+    test_message = {
+        "event_type": "test_message",
+        "message": "WebSocket test from Gateway",
+        "timestamp": datetime.now().isoformat()
+    }
+    
+    await manager.broadcast(test_message)
+    return {"status": "test_message_sent", "message": test_message}
+
 @app.get("/api/stats")
 async def get_stats():
     """Get dashboard statistics"""
@@ -543,28 +555,33 @@ async def process_kafka_message(message):
 def kafka_consumer_thread():
     """Run Kafka consumer in a separate thread"""
     try:
+        print("DEBUG: Starting Kafka consumer thread...")  # Debug print
         consumer = KafkaConsumer(
             'issues.enriched',  # Listen for enriched issues
             'issues.raw',       # Also listen for raw issues
             bootstrap_servers=[KAFKA_BOOTSTRAP_SERVERS],
             value_deserializer=lambda m: m,
-            group_id='auto-triager-gateway',
-            auto_offset_reset='latest',  # Only get new messages
+            group_id='auto-triager-gateway-test',  # New group to reset offset
+            auto_offset_reset='earliest',  # Get existing messages for testing
             enable_auto_commit=True,
-            consumer_timeout_ms=1000
+            consumer_timeout_ms=5000  # Longer timeout for debugging
         )
         
+        print("DEBUG: Consumer created, starting message loop...")  # Debug print
         logger.info("Gateway Kafka consumer started", topics=['issues.enriched', 'issues.raw'])
         
         for message in consumer:
             try:
+                print(f"DEBUG: Received message from {message.topic}")  # Debug print
                 # Run the async processing in the event loop
                 # Since we're in a thread, we need to use asyncio.run for each message
                 asyncio.run(process_kafka_message(message))
             except Exception as e:
+                print(f"DEBUG: Error processing message: {e}")  # Debug print
                 logger.error("Error processing Kafka message in gateway", error=str(e))
                 
     except Exception as e:
+        print(f"DEBUG: Consumer thread error: {e}")  # Debug print
         logger.error("Gateway Kafka consumer error", error=str(e))
 
 if __name__ == "__main__":

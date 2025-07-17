@@ -216,38 +216,89 @@ make deploy-fly
 
 All services have production Dockerfiles and are configured for cloud deployment.
 
-## Troubleshooting
+## Troubleshooting & Bug Tracking
 
 ### Common Issues
 - **Port conflicts**: Check `lsof -i :3000 -i :8000 -i :8002 -i :5432 -i :19092`
 - **Service startup failures**: Check `make dev-logs` for error details
 - **Database issues**: Try `make db-reset` to recreate with fresh schema
 - **Dependency conflicts**: Run `make dev-clean` followed by `make dev`
+- **Kafka consumer issues**: Check `make kafka-topics` and `make kafka-console TOPIC=issues.enriched`
+- **WebSocket connection issues**: Test with `curl -X POST http://localhost:8002/api/test/websocket`
 
 ### Health Checks
 All services expose health endpoints that can be tested:
 - Ingress: http://localhost:8000/health
+- Classifier: http://localhost:8001/health
 - Gateway: http://localhost:8002/health
 - Dashboard: http://localhost:3000 (HTML response)
 
+### Debug Commands
+```bash
+# Check Kafka message flow
+make kafka-console TOPIC=issues.raw
+make kafka-console TOPIC=issues.enriched
+
+# Check database state
+make db-issues
+make db-enriched
+
+# Test individual services
+curl http://localhost:8000/health  # Ingress
+curl http://localhost:8001/health  # Classifier
+curl http://localhost:8002/health  # Gateway
+
+# Test WebSocket broadcasting
+curl -X POST http://localhost:8002/api/test/websocket
+```
+
+### Bug Tracking System
+
+#### Active Known Issues
+
+**Vector Similarity Search**: pgvector type casting issue - fallback to text similarity working
+**WebSocket Consumer Visibility**: Background thread logs not visible - functionality verified working
+
+📋 **For complete bug database, resolution steps, and debugging methodology, see: `docs/BUG_TRACKING.md`**
+
+#### Quick Debugging Workflow
+1. **Check logs** - `make dev-logs` or `docker logs <service>`
+2. **Test components** - Use health checks and individual service tests
+3. **Trace data flow** - Follow pipeline from ingress to dashboard
+4. **Document findings** - Add to `docs/BUG_TRACKING.md`
+
 ## Data Flow and System Design
 
-### High-Level Data Pipeline
+### High-Level Data Pipeline (Real-Time Event-Driven Architecture)
 ```
 GitHub Issue Created
         ↓
-[Ingress] Webhook Receiver → Validates & forwards to Kafka
+[Ingress] Webhook Receiver → Validates & publishes to Kafka
         ↓
-[Kafka] Raw Events Topic → Decouples ingestion from processing
+[Kafka] issues.raw topic → Decouples ingestion from processing
         ↓
-[Classifier] AI Worker → Consumes, analyzes, enriches with AI
+[Classifier] AI Worker → Consumes, analyzes with GPT-4o-mini, stores in DB
         ↓
-[Database] PostgreSQL + pgvector → Stores enriched data with vectors
+[Kafka] issues.enriched topic → Real-time enriched data distribution
         ↓
-[Gateway] WebSocket/API → Real-time updates to frontend
+[Gateway] Kafka Consumer → WebSocket broadcasting to connected clients
         ↓
-[Dashboard] React UI → Human review and corrections
+[Dashboard] React UI → Live updates + manual corrections
 ```
+
+### Dual-Path Architecture
+The system provides both real-time event streaming AND on-demand database access:
+- **Real-time path**: Kafka → Gateway → WebSocket → Dashboard (live updates)
+- **On-demand path**: API requests → Database queries → REST responses (historical data)
+
+### Current Implementation Status (July 2025)
+- ✅ **Core Pipeline**: Ingress → Kafka → Classifier → Database → Gateway
+- ✅ **Real-time Events**: Kafka producer/consumer with enriched data streaming
+- ✅ **AI Classification**: GPT-4o-mini integration with fallback classification
+- ✅ **WebSocket Broadcasting**: Live updates to dashboard
+- ✅ **Manual Corrections**: Human-in-the-loop feedback system
+- ✅ **Vector Search**: pgvector integration for similar issue detection
+- ✅ **Production Ready**: Docker containerization with hot-reload development
 
 ### Key Design Patterns
 
@@ -328,7 +379,7 @@ GitHub Issue Created
 /infra/             # Infrastructure configuration
   docker-compose.yml    # Development environment
   init-db.sql          # Database schema initialization
-  
+
 /tasks/             # Project task management
   tasks.json          # Current project tasks and status
   task_*.txt          # Detailed task specifications
@@ -380,4 +431,4 @@ Follow conventional commit format as defined in project rules. The system uses s
 
 ## Project Achievement Tracking
 
-- Remember to auto-update @docs/TECHNICAL_ACHIEVEMENTS.md on-the-fly as new technical achievements are made
+- Remember to auto-update `docs/TECHNICAL_ACHIEVEMENTS.md` on-the-fly as new technical achievements are made

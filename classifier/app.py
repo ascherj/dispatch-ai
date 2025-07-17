@@ -49,6 +49,21 @@ app = FastAPI(
     version="0.1.0"
 )
 
+def get_kafka_producer():
+    """Get or create Kafka producer instance"""
+    global kafka_producer
+    if kafka_producer is None:
+        kafka_producer = KafkaProducer(
+            bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS.split(','),
+            value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+            key_serializer=lambda k: str(k).encode('utf-8') if k else None,
+            acks='all',  # Reliability
+            retries=3,   # Fault tolerance
+            max_in_flight_requests_per_connection=1  # Ordering guarantee
+        )
+        logger.info("Kafka producer initialized", bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS)
+    return kafka_producer
+
 # Pydantic models
 class IssueData(BaseModel):
     id: int
@@ -82,6 +97,9 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@postgres:5432/auto_triager")
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "redpanda:9092")
 GATEWAY_SERVICE_URL = os.getenv("GATEWAY_SERVICE_URL", "http://gateway:8002")
+
+# Global Kafka producer instance
+kafka_producer = None
 
 # Initialize LangChain components
 llm = ChatOpenAI(
@@ -133,6 +151,19 @@ async def health_check():
         ai_model="gpt-4o-mini" if llm else "none"
     )
 
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Clean up resources on shutdown"""
+    global kafka_producer
+    if kafka_producer:
+        try:
+            kafka_producer.close()
+            logger.info("Kafka producer closed")
+        except Exception as e:
+            logger.error("Error closing Kafka producer", error=str(e))
+        finally:
+            kafka_producer = None
+
 @app.post("/classify", response_model=ClassificationResult)
 async def classify_issue(issue: IssueData):
     """
@@ -167,6 +198,9 @@ async def classify_issue(issue: IssueData):
 
         # Store enriched issue
         await store_enriched_issue(issue, classification, similar_issues, embedding)
+
+        # Publish enriched issue to Kafka for real-time updates
+        await publish_enriched_issue(issue, classification, similar_issues)
 
         processing_time = (datetime.now() - start_time).total_seconds() * 1000
 
@@ -341,6 +375,72 @@ async def store_enriched_issue(issue: IssueData, classification: Dict[str, Any],
         conn.close()
     except Exception as e:
         logger.error("Failed to store enriched issue", issue_id=issue.id, error=str(e))
+
+async def publish_enriched_issue(issue: IssueData, classification: Dict[str, Any], similar_issues: List[Dict[str, Any]] = None):
+    """Publish enriched issue to Kafka for real-time updates"""
+    try:
+        producer = get_kafka_producer()
+        
+        # Create enriched event payload
+        enriched_data = {
+            "issue": {
+                "id": issue.id,
+                "number": issue.number,
+                "title": issue.title,
+                "body": issue.body,
+                "repository": issue.repository,
+                "url": issue.url,
+                "author": issue.author,
+                "labels": issue.labels,
+                "created_at": issue.created_at,
+                "updated_at": issue.updated_at
+            },
+            "classification": {
+                "category": classification.get("category"),
+                "priority": classification.get("priority"),
+                "confidence": classification.get("confidence"),
+                "tags": classification.get("tags", []),
+                "summary": classification.get("summary", ""),
+                "reasoning": classification.get("reasoning", ""),
+                "estimated_effort": classification.get("estimated_effort", "medium"),
+                "component": classification.get("component", "unknown"),
+                "sentiment": classification.get("sentiment", "neutral")
+            },
+            "similar_issues": similar_issues or [],
+            "processed_at": datetime.now().isoformat(),
+            "processing_model": "gpt-4o-mini",
+            "event_type": "issue_classified"
+        }
+        
+        # Create message key for partitioning
+        message_key = f"{issue.repository}:issue:{issue.number}"
+        
+        # Send to Kafka
+        future = producer.send(
+            'issues.enriched',
+            key=message_key,
+            value=enriched_data
+        )
+        
+        # Wait for message to be sent (with timeout)
+        record_metadata = future.get(timeout=10)
+        
+        logger.info(
+            "Published enriched issue to Kafka",
+            issue_id=issue.id,
+            repository=issue.repository,
+            topic=record_metadata.topic,
+            partition=record_metadata.partition,
+            offset=record_metadata.offset
+        )
+        
+    except Exception as e:
+        logger.error(
+            "Failed to publish enriched issue to Kafka",
+            issue_id=issue.id,
+            error=str(e)
+        )
+        # Don't raise the exception - Kafka publishing should not fail the classification
 
 async def generate_embedding(issue: IssueData) -> Optional[List[float]]:
     """Generate OpenAI embedding for the issue"""
