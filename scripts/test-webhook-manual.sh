@@ -8,7 +8,7 @@ set -e
 ENDPOINT_URL=${1:-"http://localhost:8000"}
 WEBHOOK_URL="$ENDPOINT_URL/webhook/github"
 
-echo "🔗 Testing Auto-Triager Webhook Endpoint"
+echo "🔗 Testing DispatchAI Webhook Endpoint"
 echo "📍 URL: $WEBHOOK_URL"
 echo ""
 
@@ -197,7 +197,7 @@ echo ""
 echo -e "${GREEN}🎉 All manual tests completed!${NC}"
 echo ""
 echo -e "${YELLOW}💡 Tips:${NC}"
-echo "• Check container logs: docker logs auto-triager-ingress -f"
+echo "• Check container logs: docker logs dispatchai-ingress -f"
 echo "• Monitor Kafka messages: make kafka-console"
 echo "• View FastAPI docs: http://localhost:8000/docs"
 echo "• View health status: http://localhost:8000/health"

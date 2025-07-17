@@ -1,6 +1,6 @@
-# Auto-Triager Development Environment
+# DispatchAI Development Environment
 
-This guide provides everything you need to start developing on Auto-Triager with a seamless Docker Compose setup.
+This guide provides everything you need to start developing on DispatchAI with a seamless Docker Compose setup.
 
 ## 🚀 Quick Start
 
@@ -13,7 +13,7 @@ This guide provides everything you need to start developing on Auto-Triager with
 ```bash
 # Clone and start the entire development environment
 git clone <your-repo-url>
-cd auto-triager
+cd dispatchai
 make dev
 ```
 
@@ -36,7 +36,7 @@ After running `make dev`, you'll have these services running:
 - 🎯 **Main Dashboard**: http://localhost:3000
 - 📚 **API Documentation**: http://localhost:8002/docs
 - 🪝 **GitHub Webhook**: http://localhost:8000/webhook/github
-- 💾 **Database**: postgresql://postgres:postgres@localhost:5432/auto_triager
+- 💾 **Database**: postgresql://postgres:postgres@localhost:5432/dispatchai
 
 ## 🛠️ Development Commands
 
@@ -97,7 +97,7 @@ make shell-dashboard
 make build-service SERVICE=gateway
 
 # View logs for specific service
-docker logs auto-triager-gateway -f
+docker logs dispatchai-gateway -f
 ```
 
 ## 🔧 Configuration
@@ -107,7 +107,7 @@ The development environment uses a `.env` file for configuration. Key variables:
 
 ```bash
 # Database
-POSTGRES_DB=auto_triager
+POSTGRES_DB=dispatchai
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=postgres
 
@@ -117,7 +117,7 @@ ANTHROPIC_API_KEY=your-anthropic-api-key-here
 GITHUB_WEBHOOK_SECRET=your-webhook-secret-here
 
 # Service URLs (automatically configured for Docker)
-DATABASE_URL=postgresql://postgres:postgres@postgres:5432/auto_triager
+DATABASE_URL=postgresql://postgres:postgres@postgres:5432/dispatchai
 KAFKA_BOOTSTRAP_SERVERS=redpanda:9092
 ```
 
@@ -242,10 +242,10 @@ All services expose health endpoints:
 make dev-logs
 
 # Individual services
-docker logs auto-triager-ingress -f
-docker logs auto-triager-gateway -f
-docker logs auto-triager-classifier -f
-docker logs auto-triager-dashboard -f
+docker logs dispatchai-ingress -f
+docker logs dispatchai-gateway -f
+docker logs dispatchai-classifier -f
+docker logs dispatchai-dashboard -f
 ```
 
 ## 📝 Development Tips

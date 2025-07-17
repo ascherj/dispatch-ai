@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Auto-Triager is an intelligent GitHub issue classification and triaging system that automatically processes, enriches, and categorizes GitHub issues using AI-powered analysis. The system is built as a microservices architecture with real-time processing capabilities.
+DispatchAI is an intelligent GitHub issue classification and triaging system that automatically processes, enriches, and categorizes GitHub issues using AI-powered analysis. The system is built as a microservices architecture with real-time processing capabilities.
 
 ## Architecture
 
@@ -151,12 +151,12 @@ ANTHROPIC_API_KEY=your_anthropic_api_key_here
 GITHUB_WEBHOOK_SECRET=your_webhook_secret_here
 
 # Database
-POSTGRES_DB=auto_triager
+POSTGRES_DB=dispatchai
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=postgres
 
 # Service Configuration
-DATABASE_URL=postgresql://postgres:postgres@postgres:5432/auto_triager
+DATABASE_URL=postgresql://postgres:postgres@postgres:5432/dispatchai
 KAFKA_BOOTSTRAP_SERVERS=redpanda:9092
 ```
 
@@ -195,7 +195,7 @@ The system is designed to handle:
 - Dashboard: http://localhost:3000
 - API Gateway: http://localhost:8002 (WebSocket: ws://localhost:8002/ws)
 - Ingress Webhooks: http://localhost:8000
-- Database: postgresql://postgres:postgres@localhost:5432/auto_triager
+- Database: postgresql://postgres:postgres@localhost:5432/dispatchai
 - Redpanda Console: http://localhost:8080
 
 ## Testing Strategy

@@ -1,5 +1,5 @@
 """
-Auto-Triager Classifier Service
+DispatchAI Classifier Service
 LangChain-powered issue classification and enrichment
 """
 
@@ -43,7 +43,7 @@ structlog.configure(
 logger = structlog.get_logger()
 
 app = FastAPI(
-    title="Auto-Triager Classifier Service",
+    title="DispatchAI Classifier Service",
     description="LangChain-powered issue classification and enrichment",
     version="0.1.0",
 )
@@ -101,7 +101,7 @@ class HealthResponse(BaseModel):
 # Environment configuration
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 DATABASE_URL = os.getenv(
-    "DATABASE_URL", "postgresql://postgres:postgres@postgres:5432/auto_triager"
+    "DATABASE_URL", "postgresql://postgres:postgres@postgres:5432/dispatchai"
 )
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "redpanda:9092")
 GATEWAY_SERVICE_URL = os.getenv("GATEWAY_SERVICE_URL", "http://gateway:8002")
@@ -335,7 +335,7 @@ async def store_raw_issue(issue: IssueData):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO auto_triager.issues (
+                INSERT INTO dispatchai.issues (
                     github_issue_id, repository_name, repository_owner, issue_number,
                     title, body, state, labels, assignees, author, created_at, updated_at, raw_data
                 )
@@ -382,7 +382,7 @@ async def store_enriched_issue(
             # First, get the internal issue ID from the issues table
             cur.execute(
                 """
-                SELECT id FROM auto_triager.issues 
+                SELECT id FROM dispatchai.issues 
                 WHERE github_issue_id = %s
             """,
                 (issue.id,),
@@ -397,7 +397,7 @@ async def store_enriched_issue(
             # Store enriched data (use upsert since there's no unique constraint on issue_id)
             cur.execute(
                 """
-                INSERT INTO auto_triager.enriched_issues (
+                INSERT INTO dispatchai.enriched_issues (
                     issue_id, classification, summary, tags, suggested_assignees,
                     estimated_effort, category, priority, severity, component, sentiment,
                     embedding, confidence_score, processing_model, ai_reasoning
@@ -527,8 +527,8 @@ async def find_similar_issues(
                     """
                     SELECT i.id, i.issue_number, i.title, i.repository_name,
                            ei.embedding <-> %s as similarity_distance
-                    FROM auto_triager.issues i
-                    JOIN auto_triager.enriched_issues ei ON i.id = ei.issue_id
+                    FROM dispatchai.issues i
+                    JOIN dispatchai.enriched_issues ei ON i.id = ei.issue_id
                     WHERE i.repository_name = %s AND i.github_issue_id != %s
                     AND ei.embedding IS NOT NULL
                     ORDER BY similarity_distance ASC
@@ -542,7 +542,7 @@ async def find_similar_issues(
                     """
                     SELECT i.id, i.issue_number, i.title, i.repository_name,
                            similarity(i.title, %s) as title_similarity
-                    FROM auto_triager.issues i
+                    FROM dispatchai.issues i
                     WHERE i.repository_name = %s AND i.github_issue_id != %s
                     ORDER BY title_similarity DESC
                     LIMIT 5

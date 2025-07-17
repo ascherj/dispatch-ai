@@ -2,7 +2,7 @@
 
 ## Overview
 
-The auto-triager project uses GitHub Actions for continuous integration and deployment. The pipeline is designed to be intelligent, scalable, and production-ready.
+The dispatchai project uses GitHub Actions for continuous integration and deployment. The pipeline is designed to be intelligent, scalable, and production-ready.
 
 ## Pipeline Architecture
 

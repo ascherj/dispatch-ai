@@ -1,14 +1,14 @@
--- Auto-Triager Database Initialization Script
+-- DispatchAI Database Initialization Script
 -- This script sets up the initial database schema with pgvector extension
 
 -- Enable pgvector extension for vector similarity search
 CREATE EXTENSION IF NOT EXISTS vector;
 
--- Create schema for auto-triager
-CREATE SCHEMA IF NOT EXISTS auto_triager;
+-- Create schema for dispatchai
+CREATE SCHEMA IF NOT EXISTS dispatchai;
 
 -- Set search path to include our schema
-SET search_path TO auto_triager, public;
+SET search_path TO dispatchai, public;
 
 -- Issues table - stores raw GitHub issues
 CREATE TABLE IF NOT EXISTS issues (
@@ -135,14 +135,14 @@ INSERT INTO issues (
     title, body, state, labels, author, author_association, created_at, updated_at, raw_data
 ) VALUES 
 (
-    1, 'auto-triager', 'ascherj', 1,
+    1, 'dispatchai', 'ascherj', 1,
     'App crashes on startup with npm start', 
     'When I run npm start, I get the following error:\n\nError: Cannot find module ''./config''\n\nThis happens consistently on macOS with Node.js 18.x. The error prevents the development server from starting.',
     'open', '["bug"]', 'contributor-user', 'CONTRIBUTOR',
     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, '{"sample": true, "event": "opened"}'
 ),
 (
-    2, 'auto-triager', 'ascherj', 2,
+    2, 'dispatchai', 'ascherj', 2,
     'Add dark mode support to dashboard',
     'It would be great to have a dark mode toggle in the dashboard. This would improve user experience, especially for developers working in low-light environments.\n\nSuggested implementation:\n- Toggle button in header\n- Save preference in localStorage\n- CSS variables for theme switching',
     'open', '["enhancement", "ui"]', 'external-contributor', 'FIRST_TIME_CONTRIBUTOR',
@@ -158,14 +158,14 @@ INSERT INTO issues (
 ON CONFLICT (repository_owner, repository_name, issue_number) DO NOTHING;
 
 -- Grant permissions (adjust as needed for your security requirements)
-GRANT USAGE ON SCHEMA auto_triager TO postgres;
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA auto_triager TO postgres;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA auto_triager TO postgres;
+GRANT USAGE ON SCHEMA dispatchai TO postgres;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA dispatchai TO postgres;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA dispatchai TO postgres;
 
 -- Print success message
 DO $$
 BEGIN
-    RAISE NOTICE 'Auto-Triager database initialization completed successfully!';
+    RAISE NOTICE 'DispatchAI database initialization completed successfully!';
     RAISE NOTICE 'Created tables: issues, enriched_issues, manual_corrections, similar_issues, processing_logs';
     RAISE NOTICE 'Enabled pgvector extension for similarity search';
 END $$;

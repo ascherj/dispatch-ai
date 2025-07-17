@@ -1,5 +1,5 @@
 """
-Auto-Triager Ingress Service
+DispatchAI Ingress Service
 FastAPI webhook receiver for GitHub issues
 """
 
@@ -113,7 +113,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
 
 app = FastAPI(
-    title="Auto-Triager Ingress Service",
+    title="DispatchAI Ingress Service",
     description="Webhook receiver for GitHub issues",
     version="0.1.0",
 )

@@ -35,7 +35,7 @@ This document tracks which features mentioned in README.md are implemented vs. a
 - [x] **Real-time WebSocket updates** with Kafka consumer integration
 - [x] **Gateway service** with REST API and WebSocket broadcasting
 - [x] **Manual correction workflow** for human-in-the-loop feedback
-- [x] **Database schema** with auto_triager namespace and proper relationships
+- [x] **Database schema** with dispatchai namespace and proper relationships
 - [ ] **Interactive dashboard** with correction interface (React frontend)
 - [x] **Vector similarity search** (foundation implemented, needs optimization)
 - [ ] **Issue clustering visualization**
@@ -95,7 +95,7 @@ This document tracks which features mentioned in README.md are implemented vs. a
 - **Task 1**: ✅ Infrastructure setup → Docker Compose, PostgreSQL, Kafka, health checks
 - **Task 2**: ✅ FastAPI webhook receiver → GitHub webhook processing with validation
 - **Task 3**: ✅ Kafka integration → Event streaming and snappy compression support  
-- **Task 4**: ✅ Database schema → PostgreSQL with auto_triager schema and pgvector
+- **Task 4**: ✅ Database schema → PostgreSQL with dispatchai schema and pgvector
 - **Task 5**: ✅ LangChain classifier → AI classification service with GPT-4o-mini
 - **Task 6**: ✅ Gateway service → WebSocket real-time updates and manual corrections
 

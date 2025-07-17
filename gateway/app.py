@@ -1,5 +1,5 @@
 """
-Auto-Triager Gateway Service
+DispatchAI Gateway Service
 WebSocket and REST API gateway for real-time communication
 """
 
@@ -41,7 +41,7 @@ structlog.configure(
 logger = structlog.get_logger()
 
 app = FastAPI(
-    title="Auto-Triager Gateway Service",
+    title="DispatchAI Gateway Service",
     description="WebSocket and REST API gateway for real-time communication",
     version="0.1.0",
 )
@@ -88,7 +88,7 @@ class HealthResponse(BaseModel):
 
 # Environment configuration
 DATABASE_URL = os.getenv(
-    "DATABASE_URL", "postgresql://postgres:postgres@postgres:5432/auto_triager"
+    "DATABASE_URL", "postgresql://postgres:postgres@postgres:5432/dispatchai"
 )
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "redpanda:9092")
 DASHBOARD_URL = os.getenv("DASHBOARD_URL", "http://localhost:3000")
@@ -189,8 +189,8 @@ async def get_issues(
                 SELECT
                     i.id, i.issue_number, i.title, i.repository_name, i.created_at, i.updated_at,
                     e.category, e.priority, e.confidence_score, e.tags
-                FROM auto_triager.issues i
-                LEFT JOIN auto_triager.enriched_issues e ON i.id = e.issue_id
+                FROM dispatchai.issues i
+                LEFT JOIN dispatchai.enriched_issues e ON i.id = e.issue_id
                 WHERE {where_clause}
                 ORDER BY i.created_at DESC
                 LIMIT %s
@@ -243,8 +243,8 @@ async def get_issue(issue_id: int):
                 SELECT
                     i.id, i.issue_number, i.title, i.body, i.repository_name, i.created_at, i.updated_at,
                     e.category, e.priority, e.confidence_score, e.tags
-                FROM auto_triager.issues i
-                LEFT JOIN auto_triager.enriched_issues e ON i.id = e.issue_id
+                FROM dispatchai.issues i
+                LEFT JOIN dispatchai.enriched_issues e ON i.id = e.issue_id
                 WHERE i.id = %s
             """,
                 (issue_id,),
@@ -288,7 +288,7 @@ async def trigger_classification(issue_id: int):
             cur.execute(
                 """
                 SELECT id, issue_number, title, body, labels, repository_name, repository_owner, created_at, updated_at, author
-                FROM auto_triager.issues WHERE id = %s
+                FROM dispatchai.issues WHERE id = %s
             """,
                 (issue_id,),
             )
@@ -368,15 +368,15 @@ async def get_stats():
                     COUNT(*) as total_issues,
                     COUNT(e.issue_id) as classified_issues,
                     COUNT(*) - COUNT(e.issue_id) as pending_issues
-                FROM auto_triager.issues i
-                LEFT JOIN auto_triager.enriched_issues e ON i.id = e.issue_id
+                FROM dispatchai.issues i
+                LEFT JOIN dispatchai.enriched_issues e ON i.id = e.issue_id
             """)
             counts = cur.fetchone()
 
             # Get category breakdown
             cur.execute("""
                 SELECT category, COUNT(*) as count
-                FROM auto_triager.enriched_issues
+                FROM dispatchai.enriched_issues
                 WHERE category IS NOT NULL
                 GROUP BY category
                 ORDER BY count DESC
@@ -386,7 +386,7 @@ async def get_stats():
             # Get priority breakdown
             cur.execute("""
                 SELECT priority, COUNT(*) as count
-                FROM auto_triager.enriched_issues
+                FROM dispatchai.enriched_issues
                 WHERE priority IS NOT NULL
                 GROUP BY priority
                 ORDER BY
@@ -430,8 +430,8 @@ async def apply_manual_correction(issue_id: int, correction: ManualCorrection):
             cur.execute(
                 """
                 SELECT i.id, e.id as enriched_id, e.category, e.priority, e.tags
-                FROM auto_triager.issues i
-                LEFT JOIN auto_triager.enriched_issues e ON i.id = e.issue_id
+                FROM dispatchai.issues i
+                LEFT JOIN dispatchai.enriched_issues e ON i.id = e.issue_id
                 WHERE i.id = %s
             """,
                 (issue_id,),
@@ -451,7 +451,7 @@ async def apply_manual_correction(issue_id: int, correction: ManualCorrection):
             if result["category"] != correction.category:
                 cur.execute(
                     """
-                    INSERT INTO auto_triager.manual_corrections (
+                    INSERT INTO dispatchai.manual_corrections (
                         enriched_issue_id, field_name, original_value, corrected_value, 
                         corrected_by, correction_reason
                     )
@@ -470,7 +470,7 @@ async def apply_manual_correction(issue_id: int, correction: ManualCorrection):
             if result["priority"] != correction.priority:
                 cur.execute(
                     """
-                    INSERT INTO auto_triager.manual_corrections (
+                    INSERT INTO dispatchai.manual_corrections (
                         enriched_issue_id, field_name, original_value, corrected_value, 
                         corrected_by, correction_reason
                     )
@@ -489,7 +489,7 @@ async def apply_manual_correction(issue_id: int, correction: ManualCorrection):
             if result["tags"] != correction.tags:
                 cur.execute(
                     """
-                    INSERT INTO auto_triager.manual_corrections (
+                    INSERT INTO dispatchai.manual_corrections (
                         enriched_issue_id, field_name, original_value, corrected_value, 
                         corrected_by, correction_reason
                     )
@@ -508,7 +508,7 @@ async def apply_manual_correction(issue_id: int, correction: ManualCorrection):
             # Update enriched_issues with manual correction
             cur.execute(
                 """
-                UPDATE auto_triager.enriched_issues 
+                UPDATE dispatchai.enriched_issues 
                 SET category = %s, priority = %s, tags = %s, updated_at = %s
                 WHERE id = %s
             """,
@@ -563,10 +563,10 @@ async def root():
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Auto-Triager Gateway</title>
+        <title>DispatchAI Gateway</title>
     </head>
     <body>
-        <h1>Auto-Triager Gateway Service</h1>
+        <h1>DispatchAI Gateway Service</h1>
         <p>WebSocket and REST API gateway is running.</p>
         <ul>
             <li><a href="/docs">API Documentation</a></li>

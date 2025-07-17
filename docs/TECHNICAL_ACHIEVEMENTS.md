@@ -1,7 +1,7 @@
 # Technical Achievements Portfolio
 
 ## Overview
-This document showcases technical accomplishments and system implementation achievements for the Auto-Triager application, formatted in STAR (Situation, Task, Action, Result) format for interview storytelling and professional development documentation.
+This document showcases technical accomplishments and system implementation achievements for the DispatchAI application, formatted in STAR (Situation, Task, Action, Result) format for interview storytelling and professional development documentation.
 
 **Project Context:**
 - **Tech Stack:** FastAPI, React 19, TypeScript, PostgreSQL, Kafka/Redpanda, Docker
@@ -22,7 +22,7 @@ This document showcases technical accomplishments and system implementation achi
 - **Throughput:** Designed for 1,000+ issues/minute scalability
 
 #### **Situation**
-The Auto-Triager webhook ingress service initially used a simple HTTP forwarding approach that would become a bottleneck under high GitHub webhook volume. With large repositories potentially generating hundreds of issues, comments, and pull requests per hour, the system needed to handle burst traffic without losing events or impacting GitHub's webhook delivery reliability.
+The DispatchAI webhook ingress service initially used a simple HTTP forwarding approach that would become a bottleneck under high GitHub webhook volume. With large repositories potentially generating hundreds of issues, comments, and pull requests per hour, the system needed to handle burst traffic without losing events or impacting GitHub's webhook delivery reliability.
 
 #### **Task**
 Design and implement a high-performance webhook processing system that can handle GitHub's webhook delivery patterns while ensuring zero data loss and maintaining sub-5-second processing times. The solution needed to be production-ready with proper security and monitoring.
@@ -212,7 +212,7 @@ Implement production-ready rate limiting that protects against abuse while allow
 - **Reliability:** Consistent environment across all team members
 
 #### **Situation**
-The Auto-Triager system consists of multiple microservices (ingress, classifier, gateway, dashboard) with dependencies on PostgreSQL, Kafka/Redpanda, and various configuration requirements. New team members were spending significant time setting up local development environments, and inconsistencies were causing debugging difficulties.
+The DispatchAI system consists of multiple microservices (ingress, classifier, gateway, dashboard) with dependencies on PostgreSQL, Kafka/Redpanda, and various configuration requirements. New team members were spending significant time setting up local development environments, and inconsistencies were causing debugging difficulties.
 
 #### **Task**
 Create a streamlined Docker-based development environment that allows developers to start the entire system with a single command while maintaining hot-reload capabilities and comprehensive testing infrastructure.
@@ -395,14 +395,14 @@ Upgrade to OpenAI's latest recommended models to achieve better classification a
 - **Integration:** 100% functional pipeline with Kafka consumer threading
 
 #### **Situation**
-The Auto-Triager system had all core services (ingress, classifier, gateway) working independently, but lacked real-time communication between them. The gateway service needed Kafka consumer integration to receive AI classification results and broadcast them via WebSocket to connected clients. Manual correction functionality was also required for human-in-the-loop AI training.
+The DispatchAI system had all core services (ingress, classifier, gateway) working independently, but lacked real-time communication between them. The gateway service needed Kafka consumer integration to receive AI classification results and broadcast them via WebSocket to connected clients. Manual correction functionality was also required for human-in-the-loop AI training.
 
 #### **Task**
 Complete the gateway service implementation to serve as the central hub for real-time communication, integrating Kafka consumer functionality, WebSocket broadcasting, and manual correction workflows while ensuring all database operations align with the existing schema.
 
 #### **Action**
 1. **Database Schema Alignment:**
-   - Fixed all database queries to use `auto_triager` schema prefix
+   - Fixed all database queries to use `dispatchai` schema prefix
    - Corrected field mappings (`number` → `issue_number`, `repository` → `repository_name`)
    - Implemented proper manual corrections table integration
 
@@ -428,7 +428,7 @@ Complete the gateway service implementation to serve as the central hub for real
        consumer = KafkaConsumer(
            'issues.enriched', 'issues.raw',
            bootstrap_servers=[KAFKA_BOOTSTRAP_SERVERS],
-           group_id='auto-triager-gateway'
+           group_id='dispatchai-gateway'
        )
        
        for message in consumer:
@@ -436,7 +436,7 @@ Complete the gateway service implementation to serve as the central hub for real
    
    # Manual correction with proper schema alignment
    cur.execute("""
-       INSERT INTO auto_triager.manual_corrections (
+       INSERT INTO dispatchai.manual_corrections (
            enriched_issue_id, field_name, original_value, corrected_value
        ) VALUES (%s, %s, %s, %s)
    """, (enriched_id, 'category', old_value, new_value))
@@ -578,7 +578,7 @@ Complete the gateway service implementation to serve as the central hub for real
 ## 🎯 Current Project Status (July 16, 2025)
 
 ### ✅ MAJOR MILESTONE: Core Pipeline Complete
-The Auto-Triager system has achieved **full end-to-end functionality** with all backend services operational:
+The DispatchAI system has achieved **full end-to-end functionality** with all backend services operational:
 
 **Pipeline Flow**: GitHub Webhook → Ingress → Kafka → AI Classifier → Database → Gateway → WebSocket Broadcasting
 
@@ -610,7 +610,7 @@ The Auto-Triager system has achieved **full end-to-end functionality** with all 
 - **Scalability:** Designed for 1,000+ concurrent WebSocket connections
 
 #### **Situation**
-The Auto-Triager system needed real-time updates to provide instant feedback to users when issues are classified. The initial implementation relied on periodic API polling, which created unnecessary load and poor user experience with delayed updates.
+The DispatchAI system needed real-time updates to provide instant feedback to users when issues are classified. The initial implementation relied on periodic API polling, which created unnecessary load and poor user experience with delayed updates.
 
 #### **Task**
 Implement a complete event-driven architecture using Kafka for message streaming and WebSocket connections for real-time dashboard updates, while maintaining database persistence for historical data access.

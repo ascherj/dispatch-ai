@@ -2,7 +2,7 @@ services:
   # Message Broker - Redpanda (Kafka-compatible)
   redpanda:
     image: redpandadata/redpanda:v23.3.5
-    container_name: auto-triager-redpanda
+    container_name: dispatchai-redpanda
     command:
       - redpanda
       - start
@@ -35,7 +35,7 @@ services:
     volumes:
       - redpanda_data:/var/lib/redpanda/data
     networks:
-      - auto-triager-network
+      - dispatchai-network
     healthcheck:
       test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true' || exit 1"]
       interval: 15s
@@ -46,9 +46,9 @@ services:
   # Database - PostgreSQL 16 with pgvector
   postgres:
     image: pgvector/pgvector:pg16
-    container_name: auto-triager-postgres
+    container_name: dispatchai-postgres
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-auto_triager}
+      POSTGRES_DB: ${POSTGRES_DB:-dispatchai}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_HOST_AUTH_METHOD: trust
@@ -58,9 +58,9 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
     networks:
-      - auto-triager-network
+      - dispatchai-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-auto_triager}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-dispatchai}"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -71,10 +71,10 @@ services:
     build:
       context: ../ingress
       dockerfile: Dockerfile.dev
-    container_name: auto-triager-ingress
+    container_name: dispatchai-ingress
     environment:
       - KAFKA_BOOTSTRAP_SERVERS=redpanda:9092
-      - POSTGRES_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-auto_triager}
+      - POSTGRES_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-dispatchai}
       - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     ports:
@@ -87,7 +87,7 @@ services:
       postgres:
         condition: service_healthy
     networks:
-      - auto-triager-network
+      - dispatchai-network
     restart: unless-stopped
 
   # Classifier Service - LangChain AI worker
@@ -95,10 +95,10 @@ services:
     build:
       context: ../classifier
       dockerfile: Dockerfile.dev
-    container_name: auto-triager-classifier
+    container_name: dispatchai-classifier
     environment:
       - KAFKA_BOOTSTRAP_SERVERS=redpanda:9092
-      - POSTGRES_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-auto_triager}
+      - POSTGRES_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-dispatchai}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -112,7 +112,7 @@ services:
       postgres:
         condition: service_healthy
     networks:
-      - auto-triager-network
+      - dispatchai-network
     restart: unless-stopped
 
   # Gateway Service - WebSocket/REST API
@@ -120,10 +120,10 @@ services:
     build:
       context: ../gateway
       dockerfile: Dockerfile.dev
-    container_name: auto-triager-gateway
+    container_name: dispatchai-gateway
     environment:
       - KAFKA_BOOTSTRAP_SERVERS=redpanda:9092
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-auto_triager}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-dispatchai}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     ports:
       - "8002:8002"
@@ -135,7 +135,7 @@ services:
       postgres:
         condition: service_healthy
     networks:
-      - auto-triager-network
+      - dispatchai-network
     restart: unless-stopped
 
   # Dashboard - React frontend
@@ -143,7 +143,7 @@ services:
     build:
       context: ../dashboard
       dockerfile: Dockerfile.dev
-    container_name: auto-triager-dashboard
+    container_name: dispatchai-dashboard
     environment:
       - VITE_API_URL=http://localhost:8002
       - VITE_WS_URL=ws://localhost:8002/ws
@@ -156,7 +156,7 @@ services:
     depends_on:
       - gateway
     networks:
-      - auto-triager-network
+      - dispatchai-network
     restart: unless-stopped
 
 volumes:
@@ -168,5 +168,5 @@ volumes:
     driver: local
 
 networks:
-  auto-triager-network:
+  dispatchai-network:
     driver: bridge

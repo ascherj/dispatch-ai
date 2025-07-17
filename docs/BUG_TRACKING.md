@@ -134,11 +134,11 @@ curl http://localhost:8002/health  # Gateway
 make db-shell
 
 # Query specific tables
-make db-query SQL="SELECT * FROM auto_triager.issues LIMIT 5;"
-make db-query SQL="SELECT * FROM auto_triager.enriched_issues LIMIT 5;"
+make db-query SQL="SELECT * FROM dispatchai.issues LIMIT 5;"
+make db-query SQL="SELECT * FROM dispatchai.enriched_issues LIMIT 5;"
 
 # Check schema
-make db-query SQL="\\dt auto_triager.*"
+make db-query SQL="\\dt dispatchai.*"
 ```
 
 ### Kafka Debugging
@@ -170,9 +170,9 @@ make dev-logs
 make dev-logs-service SERVICE=ingress
 
 # Individual container logs
-docker logs auto-triager-ingress --tail 50
-docker logs auto-triager-classifier --tail 50
-docker logs auto-triager-gateway --tail 50
+docker logs dispatchai-ingress --tail 50
+docker logs dispatchai-classifier --tail 50
+docker logs dispatchai-gateway --tail 50
 ```
 
 ---
@@ -196,7 +196,7 @@ docker stats
 make db-query SQL="SELECT * FROM pg_stat_activity;"
 
 # Kafka consumer lag
-docker exec auto-triager-redpanda rpk group describe auto-triager-gateway
+docker exec dispatchai-redpanda rpk group describe dispatchai-gateway
 ```
 
 ---

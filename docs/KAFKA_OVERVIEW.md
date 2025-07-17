@@ -1,6 +1,6 @@
-# Kafka Overview for Auto-Triager
+# Kafka Overview for DispatchAI
 
-This document provides an overview of Apache Kafka technology and explains how it's integrated into the Auto-Triager application.
+This document provides an overview of Apache Kafka technology and explains how it's integrated into the DispatchAI application.
 
 ## 🚀 What is Apache Kafka?
 
@@ -20,11 +20,11 @@ Apache Kafka is a distributed event streaming platform designed for high-through
 
 #### **Producers**
 - Applications that publish (write) records to Kafka topics
-- In Auto-Triager: The ingress service publishes GitHub webhook events
+- In DispatchAI: The ingress service publishes GitHub webhook events
 
 #### **Consumers**
 - Applications that subscribe to (read) records from Kafka topics
-- In Auto-Triager: The classifier service consumes raw events
+- In DispatchAI: The classifier service consumes raw events
 
 #### **Brokers**
 - Kafka servers that store and serve data
@@ -45,7 +45,7 @@ Producer → Kafka Topic (Partitioned) → Consumer
 4. **Ordering**: Messages within a partition maintain order
 5. **Real-time**: Low-latency message delivery
 
-## 🏗️ Kafka Integration in Auto-Triager
+## 🏗️ Kafka Integration in DispatchAI
 
 ### Overview Architecture
 ```text
@@ -204,17 +204,17 @@ make kafka-console TOPIC=issues.raw
 
 #### Create Topic
 ```bash
-docker exec auto-triager-redpanda rpk topic create issues.raw --partitions 3 --replicas 1
+docker exec dispatchai-redpanda rpk topic create issues.raw --partitions 3 --replicas 1
 ```
 
 #### Consume Messages
 ```bash
-docker exec auto-triager-redpanda rpk topic consume issues.raw --num 10
+docker exec dispatchai-redpanda rpk topic consume issues.raw --num 10
 ```
 
 #### Topic Information
 ```bash
-docker exec auto-triager-redpanda rpk topic describe issues.raw
+docker exec dispatchai-redpanda rpk topic describe issues.raw
 ```
 
 ### Monitoring
@@ -237,7 +237,7 @@ To add a web console, you could add this service to docker-compose.yml:
 ```yaml
 redpanda-console:
   image: redpandadata/console:latest
-  container_name: auto-triager-redpanda-console
+  container_name: dispatchai-redpanda-console
   environment:
     - KAFKA_BROKERS=redpanda:9092
   ports:
@@ -245,10 +245,10 @@ redpanda-console:
   depends_on:
     - redpanda
   networks:
-    - auto-triager-network
+    - dispatchai-network
 ```
 
-## 🔍 Benefits for Auto-Triager
+## 🔍 Benefits for DispatchAI
 
 ### 1. **Decoupling**
 - Services can be developed, deployed, and scaled independently
@@ -330,13 +330,13 @@ All Events → Event Store → Rebuild Application State
 ### Troubleshooting Commands
 ```bash
 # Check consumer group status
-docker exec auto-triager-redpanda rpk group describe classifier-service
+docker exec dispatchai-redpanda rpk group describe classifier-service
 
 # Check topic lag
-docker exec auto-triager-redpanda rpk group describe classifier-service --detailed
+docker exec dispatchai-redpanda rpk group describe classifier-service --detailed
 
 # View topic configuration
-docker exec auto-triager-redpanda rpk topic describe issues.raw
+docker exec dispatchai-redpanda rpk topic describe issues.raw
 ```
 
 ## 📚 Additional Resources
@@ -347,4 +347,4 @@ docker exec auto-triager-redpanda rpk topic describe issues.raw
 
 ---
 
-*This document provides a comprehensive overview of Kafka technology and its integration in the Auto-Triager application. For implementation details, see the source code in the ingress/ directory.*
+*This document provides a comprehensive overview of Kafka technology and its integration in the DispatchAI application. For implementation details, see the source code in the ingress/ directory.*

@@ -137,7 +137,7 @@ function App() {
   return (
     <div className="App">
       <header className="header">
-        <h1>🤖 Auto-Triager Dashboard</h1>
+        <h1>🤖 DispatchAI Dashboard</h1>
         <div className="connection-status">
           <span className={`status-indicator ${connectionStatus}`}></span>
           <span>WebSocket: {connectionStatus}</span>

@@ -41,7 +41,7 @@ This document tracks features mentioned in README.md that are not yet implemente
 
 ### Database & Search ✅ FOUNDATION COMPLETE
 - [x] **PostgreSQL with pgvector** database implementation
-- [x] **auto_triager schema** with proper table relationships
+- [x] **dispatchai schema** with proper table relationships
 - [x] **Vector similarity search** foundation (embedding storage)
 - [x] **Manual corrections tracking** with audit trail
 - [ ] **Similar issues detection** optimization and UI

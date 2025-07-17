@@ -1,11 +1,11 @@
 #!/bin/bash
 
-# Test script for Auto-Triager development environment
+# Test script for DispatchAI development environment
 # This script tests that all services start up correctly and are accessible
 
 set -e
 
-echo "🚀 Testing Auto-Triager Development Environment"
+echo "🚀 Testing DispatchAI Development Environment"
 echo "=============================================="
 
 # Function to check if a service is responding

@@ -1,4 +1,4 @@
-# Auto-Triager 🚀
+# DispatchAI 🚀
 
 > **Enterprise-grade intelligent GitHub issue classification and triaging system**  
 > Transform chaotic issue queues into organized, AI-enhanced workflows with real-time processing and human oversight.
@@ -14,7 +14,7 @@ GitHub repositories receive **hundreds or thousands of issues** that require man
 
 ## 💡 The Solution
 
-Auto-Triager provides **intelligent, real-time issue classification** using AI while maintaining human oversight and continuous learning capabilities.
+DispatchAI provides **intelligent, real-time issue classification** using AI while maintaining human oversight and continuous learning capabilities.
 
 ### Key Benefits
 - **⚡ Real-time Processing**: Issues classified within seconds of creation
@@ -25,7 +25,7 @@ Auto-Triager provides **intelligent, real-time issue classification** using AI w
 
 ## 🏗️ System Architecture
 
-Auto-Triager implements a **microservices architecture** designed for enterprise-scale performance:
+DispatchAI implements a **microservices architecture** designed for enterprise-scale performance:
 
 ```
 GitHub Issues → Ingress → Kafka → AI Classifier → Database → Gateway → Dashboard

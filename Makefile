@@ -1,11 +1,11 @@
-# Auto-Triager Development Makefile
+# DispatchAI Development Makefile
 # Provides targets for development, testing, linting, and deployment
 
 .PHONY: help dev dev-up dev-down dev-logs dev-clean test test-docker test-ingress test-classifier test-gateway test-dashboard test-classifier-docker test-gateway-docker test-dashboard-docker lint lint-python lint-python-docker lint-js clean build deploy-fly setup-env check-env check-containers test-webhook-manual kafka-tail
 
 # Default target
 help: ## Show this help message
-	@echo "Auto-Triager Development Commands"
+	@echo "DispatchAI Development Commands"
 	@echo "================================="
 	@echo ""
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -52,20 +52,20 @@ dev-clean: ## Stop services and remove volumes/networks
 check-services: ## Check if all services are healthy
 	@echo "Checking service health..."
 	@echo -n "PostgreSQL: "
-	@docker exec auto-triager-postgres pg_isready -U postgres >/dev/null 2>&1 && echo "✅ Ready" || echo "❌ Not Ready"
+	@docker exec dispatchai-postgres pg_isready -U postgres >/dev/null 2>&1 && echo "✅ Ready" || echo "❌ Not Ready"
 	@echo -n "Redpanda: "
 	@curl -s http://localhost:9644/v1/cluster/health >/dev/null 2>&1 && echo "✅ Ready" || echo "❌ Not Ready"
 
 check-containers: ## Check if all containers are running
 	@echo "Checking containers..."
 	@echo -n "Ingress: "
-	@docker ps --format "table {{.Names}}" | grep -q "auto-triager-ingress" && echo "✅ Running" || echo "❌ Not Running"
+	@docker ps --format "table {{.Names}}" | grep -q "dispatchai-ingress" && echo "✅ Running" || echo "❌ Not Running"
 	@echo -n "Classifier: "
-	@docker ps --format "table {{.Names}}" | grep -q "auto-triager-classifier" && echo "✅ Running" || echo "❌ Not Running"
+	@docker ps --format "table {{.Names}}" | grep -q "dispatchai-classifier" && echo "✅ Running" || echo "❌ Not Running"
 	@echo -n "Gateway: "
-	@docker ps --format "table {{.Names}}" | grep -q "auto-triager-gateway" && echo "✅ Running" || echo "❌ Not Running"
+	@docker ps --format "table {{.Names}}" | grep -q "dispatchai-gateway" && echo "✅ Running" || echo "❌ Not Running"
 	@echo -n "Dashboard: "
-	@docker ps --format "table {{.Names}}" | grep -q "auto-triager-dashboard" && echo "✅ Running" || echo "❌ Not Running"
+	@docker ps --format "table {{.Names}}" | grep -q "dispatchai-dashboard" && echo "✅ Running" || echo "❌ Not Running"
 
 # Testing
 test: ## Run all tests (requires running containers)
@@ -92,9 +92,9 @@ test-docker: ## Run all tests in Docker containers (requires dev environment)
 
 test-ingress: ## Run ingress component tests (requires container)
 	@echo "Testing ingress component..."
-	@if docker ps --format "table {{.Names}}" | grep -q "auto-triager-ingress"; then \
+	@if docker ps --format "table {{.Names}}" | grep -q "dispatchai-ingress"; then \
 		echo "Running tests in Docker container..."; \
-		docker exec auto-triager-ingress python -m pytest test_webhook.py -v; \
+		docker exec dispatchai-ingress python -m pytest test_webhook.py -v; \
 	else \
 		echo "❌ Ingress container not running. Start with 'make dev' first"; \
 		exit 1; \
@@ -118,9 +118,9 @@ test-classifier: ## Run classifier component tests (local)
 
 test-classifier-docker: ## Run classifier component tests in Docker
 	@echo "Testing classifier component in Docker..."
-	@if docker ps --format "table {{.Names}}" | grep -q "auto-triager-classifier"; then \
-		if docker exec auto-triager-classifier find . -name "test*.py" -o -name "*test.py" | grep -q .; then \
-			docker exec auto-triager-classifier python -m pytest -v; \
+	@if docker ps --format "table {{.Names}}" | grep -q "dispatchai-classifier"; then \
+		if docker exec dispatchai-classifier find . -name "test*.py" -o -name "*test.py" | grep -q .; then \
+			docker exec dispatchai-classifier python -m pytest -v; \
 		else \
 			echo "⚠️  No test files found in classifier container"; \
 		fi; \
@@ -138,9 +138,9 @@ test-gateway: ## Run gateway component tests (local)
 
 test-gateway-docker: ## Run gateway component tests in Docker
 	@echo "Testing gateway component in Docker..."
-	@if docker ps --format "table {{.Names}}" | grep -q "auto-triager-gateway"; then \
-		if docker exec auto-triager-gateway find . -name "test*.py" -o -name "*test.py" | grep -q .; then \
-			docker exec auto-triager-gateway python -m pytest -v; \
+	@if docker ps --format "table {{.Names}}" | grep -q "dispatchai-gateway"; then \
+		if docker exec dispatchai-gateway find . -name "test*.py" -o -name "*test.py" | grep -q .; then \
+			docker exec dispatchai-gateway python -m pytest -v; \
 		else \
 			echo "⚠️  No test files found in gateway container"; \
 		fi; \
@@ -158,9 +158,9 @@ test-dashboard: ## Run dashboard component tests (local)
 
 test-dashboard-docker: ## Run dashboard component tests in Docker
 	@echo "Testing dashboard component in Docker..."
-	@if docker ps --format "table {{.Names}}" | grep -q "auto-triager-dashboard"; then \
-		if docker exec auto-triager-dashboard test -f package.json; then \
-			docker exec auto-triager-dashboard npm test; \
+	@if docker ps --format "table {{.Names}}" | grep -q "dispatchai-dashboard"; then \
+		if docker exec dispatchai-dashboard test -f package.json; then \
+			docker exec dispatchai-dashboard npm test; \
 		else \
 			echo "⚠️  No package.json found in dashboard container"; \
 		fi; \
@@ -203,9 +203,9 @@ lint-python-docker: ## Run Python linters in Docker containers
 	@for dir in ingress classifier gateway; do \
 		if [ -f $$dir/requirements.txt ]; then \
 			echo "Linting $$dir in Docker..."; \
-			if docker ps --format "table {{.Names}}" | grep -q "auto-triager-$$dir"; then \
-				docker exec auto-triager-$$dir ruff check . && \
-				docker exec auto-triager-$$dir ruff format --check .; \
+			if docker ps --format "table {{.Names}}" | grep -q "dispatchai-$$dir"; then \
+				docker exec dispatchai-$$dir ruff check . && \
+				docker exec dispatchai-$$dir ruff format --check .; \
 			else \
 				echo "⚠️  $$dir container not running. Start with 'make dev' first"; \
 			fi; \
@@ -255,65 +255,65 @@ db-reset: ## Reset the database with fresh schema
 db-shell: ## Open PostgreSQL shell
 	@echo "Opening PostgreSQL shell..."
 	@if [ -t 0 ]; then \
-		docker exec -it auto-triager-postgres psql -U postgres -d auto_triager; \
+		docker exec -it dispatchai-postgres psql -U postgres -d dispatchai; \
 	else \
-		echo "❌ No TTY available. Use 'make db-query SQL=\"SELECT * FROM auto_triager.issues;\"' instead"; \
-		echo "Or run directly: docker exec -it auto-triager-postgres psql -U postgres -d auto_triager"; \
+		echo "❌ No TTY available. Use 'make db-query SQL=\"SELECT * FROM dispatchai.issues;\"' instead"; \
+		echo "Or run directly: docker exec -it dispatchai-postgres psql -U postgres -d dispatchai"; \
 	fi
 
-db-query: ## Run SQL query (usage: make db-query SQL="SELECT * FROM auto_triager.issues;")
+db-query: ## Run SQL query (usage: make db-query SQL="SELECT * FROM dispatchai.issues;")
 	@if [ -z "$(SQL)" ]; then \
-		echo "❌ Usage: make db-query SQL=\"SELECT * FROM auto_triager.issues;\""; \
+		echo "❌ Usage: make db-query SQL=\"SELECT * FROM dispatchai.issues;\""; \
 		echo "Examples:"; \
-		echo "  make db-query SQL=\"SELECT * FROM auto_triager.issues;\""; \
-		echo "  make db-query SQL=\"SELECT COUNT(*) FROM auto_triager.enriched_issues;\""; \
-		echo "  make db-query SQL=\"\\dt auto_triager.*\""; \
+		echo "  make db-query SQL=\"SELECT * FROM dispatchai.issues;\""; \
+		echo "  make db-query SQL=\"SELECT COUNT(*) FROM dispatchai.enriched_issues;\""; \
+		echo "  make db-query SQL=\"\\dt dispatchai.*\""; \
 	else \
-		docker exec auto-triager-postgres psql -U postgres -d auto_triager -c "$(SQL)"; \
+		docker exec dispatchai-postgres psql -U postgres -d dispatchai -c "$(SQL)"; \
 	fi
 
 db-tables: ## List all tables in the database
-	@echo "Tables in auto_triager schema:"
-	@docker exec auto-triager-postgres psql -U postgres -d auto_triager -c "SELECT table_name FROM information_schema.tables WHERE table_schema = 'auto_triager' ORDER BY table_name;"
+	@echo "Tables in dispatchai schema:"
+	@docker exec dispatchai-postgres psql -U postgres -d dispatchai -c "SELECT table_name FROM information_schema.tables WHERE table_schema = 'dispatchai' ORDER BY table_name;"
 
 db-issues: ## Show all issues in the database
 	@echo "Issues in database:"
-	@docker exec auto-triager-postgres psql -U postgres -d auto_triager -c "SELECT id, issue_number, title, author, author_association, created_at FROM auto_triager.issues ORDER BY created_at DESC;"
+	@docker exec dispatchai-postgres psql -U postgres -d dispatchai -c "SELECT id, issue_number, title, author, author_association, created_at FROM dispatchai.issues ORDER BY created_at DESC;"
 
 db-enriched: ## Show enriched issues in the database
 	@echo "Enriched issues in database:"
-	@docker exec auto-triager-postgres psql -U postgres -d auto_triager -c "SELECT id, issue_id, category, priority, confidence_score, processed_at FROM auto_triager.enriched_issues ORDER BY processed_at DESC;"
+	@docker exec dispatchai-postgres psql -U postgres -d dispatchai -c "SELECT id, issue_id, category, priority, confidence_score, processed_at FROM dispatchai.enriched_issues ORDER BY processed_at DESC;"
 
 db-backup: ## Backup the database
 	@echo "Creating database backup..."
-	docker exec auto-triager-postgres pg_dump -U postgres auto_triager > backup_$(shell date +%Y%m%d_%H%M%S).sql
+	docker exec dispatchai-postgres pg_dump -U postgres dispatchai > backup_$(shell date +%Y%m%d_%H%M%S).sql
 	@echo "Backup created: backup_$(shell date +%Y%m%d_%H%M%S).sql"
 
 # Kafka/Redpanda Management
 kafka-topics: ## List Kafka topics
-	docker exec auto-triager-redpanda rpk topic list
+	docker exec dispatchai-redpanda rpk topic list
 
 kafka-create-topics: ## Create required Kafka topics
 	@echo "Creating Kafka topics..."
-	docker exec auto-triager-redpanda rpk topic create issues.raw --partitions 3 --replicas 1
-	docker exec auto-triager-redpanda rpk topic create issues.enriched --partitions 3 --replicas 1
+	docker exec dispatchai-redpanda rpk topic create issues.raw --partitions 3 --replicas 1
+	docker exec dispatchai-redpanda rpk topic create issues.enriched --partitions 3 --replicas 1
 	@echo "Topics created successfully"
 
 kafka-console: ## Consume recent messages from Kafka topic (usage: make kafka-console TOPIC=issues.raw)
-	docker exec auto-triager-redpanda rpk topic consume $(TOPIC) --num 10 --offset start
+	docker exec dispatchai-redpanda rpk topic consume $(TOPIC) --num 10 --offset start
 
 kafka-tail: ## Tail Kafka topic messages interactively (usage: make kafka-tail TOPIC=issues.raw)
 	@echo "Tailing messages from topic: $(TOPIC)"
 	@echo "Press Ctrl+C to stop"
-	docker exec -it auto-triager-redpanda rpk topic consume $(TOPIC) --follow
+	docker exec -it dispatchai-redpanda rpk topic consume $(TOPIC) --follow
 
 # Environment Setup
 setup-env: ## Set up development environment files
 	@echo "Setting up environment files..."
 	@if [ ! -f .env ]; then \
 		echo "Creating .env file from template..."; \
-		cp .env.example .env 2>/dev/null || echo "# Auto-Triager Environment Variables" > .env; \
-		echo "POSTGRES_URL=postgresql://postgres:password@localhost:5432/auto_triager" >> .env; \
+		cp .env.example .env 2>/dev/null || echo "# DispatchAI Environment Variables" > .env; \
+		echo "POSTGRES_URL=postgresql://postgres:password@localhost:5432/dispatchai" >> .env; \
 		echo "KAFKA_BOOTSTRAP_SERVERS=localhost:9092" >> .env; \
 		echo "OPENAI_API_KEY=your_openai_api_key_here" >> .env; \
 		echo "⚠️  Please update .env with your actual API keys"; \
@@ -367,13 +367,13 @@ install-deps: ## Install development dependencies
 
 # Development shortcuts
 shell-ingress: ## Open shell in ingress container
-	docker exec -it auto-triager-ingress /bin/bash
+	docker exec -it dispatchai-ingress /bin/bash
 
 shell-classifier: ## Open shell in classifier container
-	docker exec -it auto-triager-classifier /bin/bash
+	docker exec -it dispatchai-classifier /bin/bash
 
 shell-gateway: ## Open shell in gateway container
-	docker exec -it auto-triager-gateway /bin/bash
+	docker exec -it dispatchai-gateway /bin/bash
 
 shell-dashboard: ## Open shell in dashboard container
-	docker exec -it auto-triager-dashboard /bin/bash
+	docker exec -it dispatchai-dashboard /bin/bash

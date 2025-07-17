@@ -270,7 +270,7 @@ jobs:
         image: pgvector/pgvector:pg16
         env:
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: auto_triager
+          POSTGRES_DB: dispatchai
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -286,11 +286,11 @@ jobs:
       - name: Test database connectivity
         run: |
           echo "🗄️ Testing PostgreSQL connectivity..."
-          PGPASSWORD=postgres psql -h localhost -U postgres -d auto_triager -c "SELECT version();"
+          PGPASSWORD=postgres psql -h localhost -U postgres -d dispatchai -c "SELECT version();"
 
           echo "🧪 Testing pgvector extension..."
-          PGPASSWORD=postgres psql -h localhost -U postgres -d auto_triager -c "CREATE EXTENSION IF NOT EXISTS vector;"
-          PGPASSWORD=postgres psql -h localhost -U postgres -d auto_triager -c "SELECT * FROM pg_extension WHERE extname = 'vector';"
+          PGPASSWORD=postgres psql -h localhost -U postgres -d dispatchai -c "CREATE EXTENSION IF NOT EXISTS vector;"
+          PGPASSWORD=postgres psql -h localhost -U postgres -d dispatchai -c "SELECT * FROM pg_extension WHERE extname = 'vector';"
 
       - name: Validate Docker Compose
         if: needs.setup.outputs.makefile-exists == 'true'
