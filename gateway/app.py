@@ -642,7 +642,7 @@ def kafka_consumer_thread():
             "issues.raw",  # Also listen for raw issues
             bootstrap_servers=[KAFKA_BOOTSTRAP_SERVERS],
             value_deserializer=lambda m: m,
-            group_id="auto-triager-gateway-test",  # New group to reset offset
+            group_id="dispatchai-gateway",
             auto_offset_reset="earliest",  # Get existing messages for testing
             enable_auto_commit=True,
             consumer_timeout_ms=5000,  # Longer timeout for debugging

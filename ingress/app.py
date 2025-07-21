@@ -18,7 +18,10 @@ from pydantic import BaseModel, Field
 from kafka import KafkaProducer
 import json
 
-# Configure structured logging
+# Configure structured logging with INFO level
+import logging
+logging.basicConfig(level=logging.INFO)
+
 structlog.configure(
     processors=[
         structlog.stdlib.filter_by_level,
@@ -477,6 +480,7 @@ async def github_webhook(
 
         # Publish to Kafka/Redpanda
         message_key = f"{event_data['repository']['full_name']}:{event_data['event_type']}:{event_data.get('issue', event_data.get('pull_request', {})).get('number', 'unknown')}"
+        print(f"Publishing to Kafka: {message_key}")
 
         await publish_to_kafka(KAFKA_TOPIC_RAW_ISSUES, message_key, event_data)
 
