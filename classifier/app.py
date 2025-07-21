@@ -21,7 +21,10 @@ from kafka import KafkaConsumer, KafkaProducer
 import asyncio
 import threading
 
-# Configure structured logging
+# Configure structured logging with INFO level
+import logging
+logging.basicConfig(level=logging.INFO)
+
 structlog.configure(
     processors=[
         structlog.stdlib.filter_by_level,
@@ -105,6 +108,15 @@ DATABASE_URL = os.getenv(
 )
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "redpanda:9092")
 GATEWAY_SERVICE_URL = os.getenv("GATEWAY_SERVICE_URL", "http://gateway:8002")
+
+# Log environment variable status for debugging
+logger.info(
+    "Environment variables loaded",
+    openai_api_key_configured=bool(OPENAI_API_KEY and not OPENAI_API_KEY.startswith("your_")),
+    openai_key_preview=OPENAI_API_KEY[:10] if OPENAI_API_KEY else "None",
+    database_url=DATABASE_URL,
+    kafka_servers=KAFKA_BOOTSTRAP_SERVERS,
+)
 
 # Global Kafka producer instance
 kafka_producer = None
@@ -624,10 +636,10 @@ def kafka_consumer_thread():
             "issues.raw",
             bootstrap_servers=[KAFKA_BOOTSTRAP_SERVERS],
             value_deserializer=lambda m: m,
-            group_id="auto-triager-classifier",
+            group_id="dispatchai-classifier",
             auto_offset_reset="earliest",
             enable_auto_commit=True,
-            consumer_timeout_ms=1000,
+            # Removed consumer_timeout_ms to keep consumer running indefinitely
         )
 
         logger.info("Kafka consumer started", topic="issues.raw")
@@ -643,15 +655,11 @@ def kafka_consumer_thread():
         logger.error("Kafka consumer error", error=str(e))
 
 
+# Always start Kafka consumer when the app module is loaded
+kafka_thread = threading.Thread(target=kafka_consumer_thread, daemon=True)
+kafka_thread.start()
+logger.info("Started Kafka consumer thread")
+
 if __name__ == "__main__":
     import uvicorn
-
-    # Start Kafka consumer in background thread
-    kafka_thread = threading.Thread(target=kafka_consumer_thread, daemon=True)
-    kafka_thread.start()
-
     uvicorn.run("app:app", host="0.0.0.0", port=8001, reload=True, log_config=None)
-else:
-    # When running in production (not as main), start Kafka consumer
-    kafka_thread = threading.Thread(target=kafka_consumer_thread, daemon=True)
-    kafka_thread.start()
