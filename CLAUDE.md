@@ -259,13 +259,13 @@ curl -X POST http://localhost:8002/api/test/websocket
 **Vector Similarity Search**: pgvector type casting issue - fallback to text similarity working
 **WebSocket Consumer Visibility**: Background thread logs not visible - functionality verified working
 
-📋 **For complete bug database, resolution steps, and debugging methodology, see: `docs/BUG_TRACKING.md`**
+📋 **For complete bug database, resolution steps, and debugging methodology, see: @docs/BUG_TRACKING.md**
 
 #### Quick Debugging Workflow
 1. **Check logs** - `make dev-logs` or `docker logs <service>`
 2. **Test components** - Use health checks and individual service tests
 3. **Trace data flow** - Follow pipeline from ingress to dashboard
-4. **Document findings** - Add to `docs/BUG_TRACKING.md`
+4. **Document findings** - Add to @docs/BUG_TRACKING.md
 
 ## Data Flow and System Design
 
@@ -431,4 +431,8 @@ Follow conventional commit format as defined in project rules. The system uses s
 
 ## Project Achievement Tracking
 
-- Remember to auto-update `docs/TECHNICAL_ACHIEVEMENTS.md` on-the-fly as new technical achievements are made
+- Remember to auto-update @docs/TECHNICAL_ACHIEVEMENTS.md on-the-fly as new technical achievements are made
+
+## Memory
+
+- When significant bugs are fixed, including bugs that I inquire about, be sure to add them to @docs/BUG_TRACKING.md
