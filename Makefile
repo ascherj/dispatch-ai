@@ -305,7 +305,7 @@ kafka-console: ## Consume recent messages from Kafka topic (usage: make kafka-co
 kafka-tail: ## Tail Kafka topic messages interactively (usage: make kafka-tail TOPIC=issues.raw)
 	@echo "Tailing messages from topic: $(TOPIC)"
 	@echo "Press Ctrl+C to stop"
-	docker exec -it dispatchai-redpanda rpk topic consume $(TOPIC) --follow
+	docker exec -it dispatchai-redpanda rpk topic consume $(TOPIC) --num 0
 
 # Environment Setup
 setup-env: ## Set up development environment files

@@ -13,6 +13,7 @@ This document tracks all bugs encountered during development, their root causes,
 
 ## Active Bugs
 
+
 ### BUG-006: CI/CD Pipeline Missing Test Scripts and Directories
 - **Symptom**: Multiple test failures in CI/CD pipeline
   - `ERROR: file or directory not found: tests/` in classifier/gateway services
@@ -43,6 +44,54 @@ This document tracks all bugs encountered during development, their root causes,
 ---
 
 ## Resolved Bugs
+
+### BUG-008: send_webhook.sh Issues Not Appearing in API Immediately
+- **Symptom**: When running `./send_webhook.sh`, webhook is accepted by ingress but issue doesn't appear in API after 5 seconds. Issues only appear after `make dev-down && make dev-up` restart cycle.
+- **Root Cause**: Kafka consumer in classifier service configured with `consumer_timeout_ms=1000`, causing consumer to stop after 1 second of inactivity. Consumer would process the first message after startup, then timeout and stop, requiring full service restart to process subsequent messages.
+- **Resolution**: Removed `consumer_timeout_ms=1000` parameter to keep consumer running indefinitely
+- **Status**: ✅ Fixed
+- **Impact**: High - Webhook testing and real-time processing broken
+- **Date**: July 21, 2025
+- **Fix Applied**:
+  - Removed `consumer_timeout_ms=1000` from KafkaConsumer configuration in classifier/app.py line 642
+  - Added comment explaining the change: `# Removed consumer_timeout_ms to keep consumer running indefinitely`
+- **Secondary Issue**: Missing INFO logging configuration in classifier prevented visibility of consumer thread status
+- **Secondary Fix**: Added `logging.basicConfig(level=logging.INFO)` in classifier/app.py line 25-26
+- **Prevention**:
+  - Use indefinite consumer timeouts for production message processing
+  - Add consumer health monitoring and alerting
+  - Include consumer status checks in integration tests
+- **Verification**:
+  ```bash
+  # Test real-time webhook processing
+  ./send_webhook.sh
+  # Issue should appear in API within 5 seconds
+
+  # Verify consumer thread logs are visible
+  docker logs dispatchai-classifier | grep "Started Kafka consumer thread"
+  ```
+
+### BUG-007: INFO Level Logs Not Appearing in Services
+- **Symptom**: Custom INFO level logs not visible in Docker logs despite being defined in code
+- **Root Cause**: Default Python logging level set to WARNING (30), filtering out INFO messages (20)
+- **Resolution**: Added `logging.basicConfig(level=logging.INFO)` before structlog configuration
+- **Status**: ✅ Fixed
+- **Impact**: Medium - Debugging visibility impaired, functionality unaffected
+- **Date**: July 21, 2025
+- **Fix Applied**:
+  - Added `import logging` and `logging.basicConfig(level=logging.INFO)` in ingress/app.py line 22-23
+  - Added same fix to classifier/app.py line 25-26
+  - Placed before structlog.configure() to ensure proper level inheritance
+- **Prevention**: Set explicit log levels in all services, document logging configuration
+- **Verification**:
+  ```bash
+  # Test logging levels
+  docker exec dispatchai-ingress python -c "import logging; print('Log level:', logging.getLogger().getEffectiveLevel())"
+
+  # Verify INFO logs appear after webhook
+  ./send_webhook.sh
+  docker logs dispatchai-ingress --tail 10 | grep INFO
+  ```
 
 ### BUG-001: Gateway Kafka Consumer Thread Not Visible in Logs
 - **Symptom**: Gateway consumer thread starts but doesn't show processing logs
@@ -234,5 +283,5 @@ docker exec dispatchai-redpanda rpk group describe dispatchai-gateway
 
 ---
 
-*Last Updated: July 17, 2025*
+*Last Updated: July 21, 2025*
 *Next Review: Weekly during active development*
