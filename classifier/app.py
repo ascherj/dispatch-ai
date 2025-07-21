@@ -112,7 +112,7 @@ GATEWAY_SERVICE_URL = os.getenv("GATEWAY_SERVICE_URL", "http://gateway:8002")
 # Log environment variable status for debugging
 logger.info(
     "Environment variables loaded",
-    openai_api_key_configured=bool(OPENAI_API_KEY and not OPENAI_API_KEY.startswith("your_")),
+    openai_api_key_configured=bool(OPENAI_API_KEY),
     openai_key_preview=OPENAI_API_KEY[:10] if OPENAI_API_KEY else "None",
     database_url=DATABASE_URL,
     kafka_servers=KAFKA_BOOTSTRAP_SERVERS,
@@ -215,6 +215,7 @@ async def classify_issue(issue: IssueData):
 
         # Perform classification
         if not llm:
+            logger.warning("No LLM model available, using fallback classification")
             # Fallback classification without AI
             classification = fallback_classification(issue)
         else:
@@ -276,13 +277,20 @@ async def ai_classification(issue: IssueData) -> Dict[str, Any]:
         # Get AI classification
         response = llm.invoke([HumanMessage(content=prompt)])
 
-        # Parse JSON response
-        classification = json.loads(response.content)
+        # Parse JSON response - strip markdown code blocks if present
+        response_text = response.content.strip()
+        if response_text.startswith("```json\n") and response_text.endswith("\n```"):
+            response_text = response_text[8:-4]  # Remove ```json\n and \n```
+        elif response_text.startswith("```\n") and response_text.endswith("\n```"):
+            response_text = response_text[4:-4]  # Remove ```\n and \n```
+        
+        logger.debug("AI response content", response_content=response.content[:500])  # Log first 500 chars
+        classification = json.loads(response_text)
 
         return classification
 
     except json.JSONDecodeError:
-        logger.warning("Failed to parse AI response, using fallback")
+        logger.warning("Failed to parse AI response, using fallback", response_content=response.content[:500])
         return fallback_classification(issue)
     except Exception as e:
         logger.error("AI classification failed", error=str(e))
@@ -394,7 +402,7 @@ async def store_enriched_issue(
             # First, get the internal issue ID from the issues table
             cur.execute(
                 """
-                SELECT id FROM dispatchai.issues 
+                SELECT id FROM dispatchai.issues
                 WHERE github_issue_id = %s
             """,
                 (issue.id,),
