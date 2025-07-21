@@ -13,22 +13,6 @@ This document tracks all bugs encountered during development, their root causes,
 
 ## Active Bugs
 
-
-### BUG-006: CI/CD Pipeline Missing Test Scripts and Directories
-- **Symptom**: Multiple test failures in CI/CD pipeline
-  - `ERROR: file or directory not found: tests/` in classifier/gateway services
-  - `npm run test` script not found in dashboard package.json
-- **Root Cause**: Makefile tries to run tests but test directories or scripts don't exist
-- **Resolution**: Update Makefile to gracefully handle missing test infrastructure
-- **Status**: ✅ Fixed
-- **Impact**: High - CI/CD pipeline failing
-- **Date**: July 17, 2025
-- **Fix Applied**: 
-  - Updated `test-classifier` target: `@if [ -f classifier/requirements.txt ] && [ -d classifier/tests ]; then`
-  - Updated `test-gateway` target: `@if [ -f gateway/requirements.txt ] && [ -d gateway/tests ]; then`
-  - Updated `test-dashboard` target: `npm run test 2>/dev/null || echo "⚠️  Dashboard tests not yet implemented"`
-- **Prevention**: Create placeholder test directories/scripts or improve test target logic
-
 ### BUG-003: Vector Similarity Search Type Error
 - **Symptom**: `operator does not exist: vector <-> numeric[]`
 - **Root Cause**: Embedding data type mismatch in similarity search queries
@@ -44,6 +28,64 @@ This document tracks all bugs encountered during development, their root causes,
 ---
 
 ## Resolved Bugs
+
+### BUG-010: AI Classification Parsing Failure - Markdown Code Blocks
+- **Symptom**: `WARNING: Failed to parse AI response, using fallback` logs in classifier service
+- **Root Cause**: OpenAI API returns JSON responses wrapped in markdown code blocks (`\`\`\`json ... \`\`\``), but code attempted to parse raw response as JSON
+- **Resolution**: Added logic to detect and strip markdown code block markers before JSON parsing
+- **Status**: ✅ Fixed
+- **Impact**: Medium - AI classification degraded to fallback values (lower confidence, generic priority)
+- **Date**: July 21, 2025
+- **Fix Applied**: 
+  - Added markdown stripping logic in classifier/app.py lines 281-285
+  - Strips `\`\`\`json\n` and `\n\`\`\`` wrapper, falls back to plain `\`\`\`` wrapper
+  - Added debug logging to capture response content for troubleshooting
+- **Prevention**: Include AI response format validation in integration tests
+- **Verification**:
+  ```bash
+  # Send test webhook and check classification results
+  ./send_webhook.sh
+  # Should see proper AI values (high confidence, detailed tags) vs fallback values
+  
+  # Check logs for absence of parsing warnings
+  docker logs dispatchai-classifier --tail 20 | grep -E "(Failed to parse|WARNING.*fallback)"
+  # Should return no results
+  ```
+
+### BUG-009: Dashboard Not Starting - Node.js Version Incompatibility
+- **Symptom**: Dashboard container stuck in restarting loop with `crypto.hash is not a function` error
+- **Root Cause**: Vite 7.0.4 requires Node.js 22+ but Docker container used Node.js 18
+- **Resolution**: Updated Dockerfile.dev to use Node.js 22-alpine
+- **Status**: ✅ Fixed
+- **Impact**: High - Dashboard completely non-functional
+- **Date**: July 21, 2025
+- **Fix Applied**: Changed `FROM node:18-alpine` to `FROM node:22-alpine` in dashboard/Dockerfile.dev
+- **Prevention**: Regular dependency version compatibility audits
+- **Verification**:
+  ```bash
+  # Test dashboard availability
+  curl -I http://localhost:3000
+  # Should return HTTP 200 OK
+  
+  # Check container logs for successful startup
+  docker logs dispatchai-dashboard --tail 10
+  # Should show "VITE ready in XXXms"
+  ```
+
+### BUG-006: CI/CD Pipeline Missing Test Scripts and Directories
+- **Symptom**: Multiple test failures in CI/CD pipeline
+  - `ERROR: file or directory not found: tests/` in classifier/gateway services
+  - `npm run test` script not found in dashboard package.json
+- **Root Cause**: Makefile tries to run tests but test directories or scripts don't exist
+- **Resolution**: Update Makefile to gracefully handle missing test infrastructure
+- **Status**: ✅ Fixed
+- **Impact**: High - CI/CD pipeline failing
+- **Date**: July 17, 2025
+- **Fix Applied**: 
+  - Updated `test-classifier` target: `@if [ -f classifier/requirements.txt ] && [ -d classifier/tests ]; then`
+  - Updated `test-gateway` target: `@if [ -f gateway/requirements.txt ] && [ -d gateway/tests ]; then`
+  - Updated `test-dashboard` target: `npm run test 2>/dev/null || echo "⚠️  Dashboard tests not yet implemented"`
+- **Prevention**: Create placeholder test directories/scripts or improve test target logic
 
 ### BUG-008: send_webhook.sh Issues Not Appearing in API Immediately
 - **Symptom**: When running `./send_webhook.sh`, webhook is accepted by ingress but issue doesn't appear in API after 5 seconds. Issues only appear after `make dev-down && make dev-up` restart cycle.
