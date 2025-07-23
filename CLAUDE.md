@@ -145,17 +145,19 @@ The system uses environment variables for configuration:
 
 ### Required Variables
 ```bash
-# API Keys
+# AI API Key (Required for classification)
 OPENAI_API_KEY=your_openai_api_key_here
-ANTHROPIC_API_KEY=your_anthropic_api_key_here
-GITHUB_WEBHOOK_SECRET=your_webhook_secret_here
 
-# Database
+# Optional API Keys
+ANTHROPIC_API_KEY=your_anthropic_api_key_here  # Optional, for future Claude integration
+GITHUB_WEBHOOK_SECRET=your_webhook_secret_here # Optional, for webhook security
+
+# Database Configuration (Set by Docker Compose)
 POSTGRES_DB=dispatchai
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=postgres
 
-# Service Configuration
+# Service Configuration (Set by Docker Compose)
 DATABASE_URL=postgresql://postgres:postgres@postgres:5432/dispatchai
 KAFKA_BOOTSTRAP_SERVERS=redpanda:9092
 ```
@@ -238,6 +240,9 @@ All services expose health endpoints that can be tested:
 # Check Kafka message flow
 make kafka-console TOPIC=issues.raw
 make kafka-console TOPIC=issues.enriched
+
+# Tail messages in real-time
+make kafka-tail TOPIC=issues.enriched
 
 # Check database state
 make db-issues
@@ -351,38 +356,45 @@ The system provides both real-time event streaming AND on-demand database access
 ### Code Organization
 ```
 /ingress/           # GitHub webhook receiver
-  app.py            # Main FastAPI application
-  models/           # Pydantic models for webhook payloads
-  services/         # Business logic and external integrations
-  tests/            # Unit and integration tests
+  app.py            # Main FastAPI application (single file)
+  Dockerfile.dev    # Development container
+  Dockerfile        # Production container
+  requirements.txt  # Python dependencies
+  test_webhook.py   # Simple webhook tests
 
 /classifier/        # AI processing service
-  app.py            # Main application and Kafka consumer
-  ai/               # LangChain and AI model integrations
-  models/           # Data models for issue classification
-  tests/            # AI model and processing tests
+  app.py            # Main application with Kafka consumer (single file)
+  Dockerfile.dev    # Development container
+  Dockerfile        # Production container
+  requirements.txt  # Python dependencies
 
 /gateway/           # API and WebSocket service
-  app.py            # FastAPI app with WebSocket support
-  api/              # REST API endpoints
-  websocket/        # Real-time WebSocket handlers
-  tests/            # API and WebSocket tests
+  app.py            # FastAPI app with WebSocket support (single file)
+  Dockerfile.dev    # Development container
+  Dockerfile        # Production container
+  requirements.txt  # Python dependencies
 
 /dashboard/         # React frontend
   src/              # TypeScript React components
-    components/     # Reusable UI components
-    pages/          # Page-level components
-    services/       # API client and WebSocket management
-    types/          # TypeScript type definitions
-  tests/            # Frontend unit and integration tests
+    App.tsx         # Main application component
+    main.tsx        # Entry point
+    assets/         # Static assets
+  package.json      # Frontend dependencies and scripts
+  Dockerfile.dev    # Development container
+  Dockerfile        # Production container
 
 /infra/             # Infrastructure configuration
   docker-compose.yml    # Development environment
   init-db.sql          # Database schema initialization
 
-/tasks/             # Project task management
-  tasks.json          # Current project tasks and status
-  task_*.txt          # Detailed task specifications
+/docs/              # Project documentation
+  BUG_TRACKING.md       # Bug tracking and resolution log
+  TECHNICAL_ACHIEVEMENTS.md  # Technical achievements tracking
+  DEVELOPMENT.md        # Development environment guide
+  FUTURE_FEATURES.md    # Feature wishlist and roadmap
+
+/scripts/           # Utility scripts
+  test-dev-environment.sh   # Environment verification script
 ```
 
 ### Development Conventions
@@ -409,13 +421,12 @@ The system provides both real-time event streaming AND on-demand database access
 
 ## Project Documentation
 
-### Task and Feature Tracking
-- **`/tasks/`** - Current implementation tasks with detailed specifications
-- **`FUTURE_FEATURES.md`** - Comprehensive feature wishlist and long-term roadmap
-- **`README_FEATURES_AUDIT.md`** - Analysis of README vs. actual implementation status
-
-### Development References
-- **`DEVELOPMENT.md`** - Comprehensive development environment guide
+### Documentation and References
+- **`@docs/FUTURE_FEATURES.md`** - Comprehensive feature wishlist and long-term roadmap
+- **`@docs/README_FEATURES_AUDIT.md`** - Analysis of README vs. actual implementation status
+- **`@docs/DEVELOPMENT.md`** - Comprehensive development environment guide
+- **`@docs/BUG_TRACKING.md`** - Bug tracking and resolution database
+- **`@docs/TECHNICAL_ACHIEVEMENTS.md`** - Technical achievements tracking
 - **`README.md`** - Project overview and aspirational feature list
 - **`CLAUDE.md`** - This file - architectural guidance for AI assistants
 
