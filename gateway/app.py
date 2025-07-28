@@ -50,7 +50,7 @@ app = FastAPI(
 # Add CORS middleware to allow frontend access
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # React dev server
+    allow_origins=["http://localhost:3000", "https://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -462,7 +462,7 @@ async def apply_manual_correction(issue_id: int, correction: ManualCorrection):
                 cur.execute(
                     """
                     INSERT INTO dispatchai.manual_corrections (
-                        enriched_issue_id, field_name, original_value, corrected_value, 
+                        enriched_issue_id, field_name, original_value, corrected_value,
                         corrected_by, correction_reason
                     )
                     VALUES (%s, %s, %s, %s, %s, %s)
@@ -481,7 +481,7 @@ async def apply_manual_correction(issue_id: int, correction: ManualCorrection):
                 cur.execute(
                     """
                     INSERT INTO dispatchai.manual_corrections (
-                        enriched_issue_id, field_name, original_value, corrected_value, 
+                        enriched_issue_id, field_name, original_value, corrected_value,
                         corrected_by, correction_reason
                     )
                     VALUES (%s, %s, %s, %s, %s, %s)
@@ -500,7 +500,7 @@ async def apply_manual_correction(issue_id: int, correction: ManualCorrection):
                 cur.execute(
                     """
                     INSERT INTO dispatchai.manual_corrections (
-                        enriched_issue_id, field_name, original_value, corrected_value, 
+                        enriched_issue_id, field_name, original_value, corrected_value,
                         corrected_by, correction_reason
                     )
                     VALUES (%s, %s, %s, %s, %s, %s)
@@ -518,7 +518,7 @@ async def apply_manual_correction(issue_id: int, correction: ManualCorrection):
             # Update enriched_issues with manual correction
             cur.execute(
                 """
-                UPDATE dispatchai.enriched_issues 
+                UPDATE dispatchai.enriched_issues
                 SET category = %s, priority = %s, tags = %s, updated_at = %s
                 WHERE id = %s
             """,

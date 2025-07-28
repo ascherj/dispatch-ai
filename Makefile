@@ -1,7 +1,7 @@
 # DispatchAI Development Makefile
 # Provides targets for development, testing, linting, and deployment
 
-.PHONY: help dev dev-up dev-down dev-logs dev-clean test test-docker test-ingress test-classifier test-gateway test-dashboard test-classifier-docker test-gateway-docker test-dashboard-docker lint lint-python lint-python-docker lint-js clean build deploy-fly setup-env check-env check-containers test-webhook-manual kafka-tail
+.PHONY: help dev dev-up dev-down dev-logs dev-clean test test-docker test-ingress test-classifier test-gateway test-dashboard test-classifier-docker test-gateway-docker test-dashboard-docker lint lint-python lint-python-docker lint-js clean build setup-env check-env check-containers test-webhook-manual kafka-tail
 
 # Default target
 help: ## Show this help message
@@ -330,17 +330,6 @@ check-env: ## Check environment setup
 	else \
 		echo "❌ .env file missing - run 'make setup-env'"; \
 	fi
-
-# Deployment
-deploy-fly: ## Deploy to Fly.io
-	@echo "Deploying to Fly.io..."
-	@if ! command -v flyctl >/dev/null 2>&1; then \
-		echo "❌ flyctl not found. Please install Fly CLI first:"; \
-		echo "   https://fly.io/docs/getting-started/installing-flyctl/"; \
-		exit 1; \
-	fi
-	@echo "🚀 Starting Fly.io deployment..."
-	flyctl deploy
 
 # Utility
 clean: ## Clean up development environment and Docker resources

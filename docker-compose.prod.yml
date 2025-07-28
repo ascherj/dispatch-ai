@@ -1,0 +1,182 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database with persistent storage
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: dispatchai-postgres-prod
+    environment:
+      POSTGRES_DB: dispatchai
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secure_password_change_me}
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d dispatchai"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redpanda (Kafka) Message Queue
+  redpanda:
+    image: redpandadata/redpanda:latest
+    container_name: dispatchai-redpanda-prod
+    command:
+      - redpanda
+      - start
+      - --node-id=0
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr=internal://redpanda:9092,external://localhost:19092
+      - --pandaproxy-addr=internal://0.0.0.0:8082,external://0.0.0.0:18082
+      - --advertise-pandaproxy-addr=internal://redpanda:8082,external://localhost:18082
+      - --schema-registry-addr=internal://0.0.0.0:8081,external://0.0.0.0:18081
+      - --rpc-addr=redpanda:33145
+      - --advertise-rpc-addr=redpanda:33145
+      - --mode=dev-container
+      - --smp=1
+      - --default-log-level=info
+    ports:
+      - "18081:18081" # Schema Registry
+      - "18082:18082" # REST Proxy  
+      - "19092:19092" # Kafka API
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Ingress Service - GitHub webhook receiver
+  ingress:
+    build:
+      context: ./ingress
+      dockerfile: Dockerfile
+    container_name: dispatchai-ingress-prod
+    environment:
+      PORT: 8000
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-secure_password_change_me}@postgres:5432/dispatchai
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Classifier Service - AI-powered issue analysis
+  classifier:
+    build:
+      context: ./classifier
+      dockerfile: Dockerfile
+    container_name: dispatchai-classifier-prod
+    environment:
+      PORT: 8001
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-secure_password_change_me}@postgres:5432/dispatchai
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    ports:
+      - "8001:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Gateway Service - WebSocket and REST API
+  gateway:
+    build:
+      context: ./gateway
+      dockerfile: Dockerfile
+    container_name: dispatchai-gateway-prod
+    environment:
+      PORT: 8002
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-secure_password_change_me}@postgres:5432/dispatchai
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      CLASSIFIER_SERVICE_URL: http://classifier:8001
+      DASHBOARD_URL: http://localhost:3000
+    ports:
+      - "8002:8002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+      classifier:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Dashboard - React frontend
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    container_name: dispatchai-dashboard-prod
+    environment:
+      PORT: 3000
+      VITE_API_URL: http://localhost:8002
+      VITE_WS_URL: ws://localhost:8002/ws
+    ports:
+      - "3000:80"
+    depends_on:
+      gateway:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redpanda Console - Web UI for Kafka management (optional)
+  redpanda-console:
+    image: redpandadata/console:latest
+    container_name: dispatchai-console-prod
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+      KAFKA_SCHEMAREGISTRY_ENABLED: true
+      KAFKA_SCHEMAREGISTRY_URLS: http://redpanda:8081
+    ports:
+      - "8080:8080"
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    restart: unless-stopped
+    profiles:
+      - tools
+
+volumes:
+  postgres_data:
+    driver: local
+  redpanda_data:
+    driver: local
+
+networks:
+  default:
+    name: dispatchai-prod
