@@ -3,6 +3,14 @@ FROM node:22-alpine as build
 
 WORKDIR /app
 
+# Accept build arguments for environment variables
+ARG VITE_API_URL
+ARG VITE_WS_URL
+
+# Set environment variables for Vite build
+ENV VITE_API_URL=$VITE_API_URL
+ENV VITE_WS_URL=$VITE_WS_URL
+
 # Copy package files first for better caching
 COPY package*.json ./
 RUN npm install
