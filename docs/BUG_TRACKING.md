@@ -29,6 +29,28 @@ This document tracks all bugs encountered during development, their root causes,
 
 ## Resolved Bugs
 
+### BUG-011: WebSocket Connection Blocked by Content Security Policy
+- **Symptom**: Dashboard shows "WebSocket: disconnected" and browser console shows CSP violation: `Refused to connect to 'ws://5.78.157.202:8002/ws' because it violates the following Content Security Policy directive`
+- **Root Cause**: nginx CSP header had `default-src 'self' http: https: data: blob: 'unsafe-inline'` without explicit `connect-src`, causing WebSocket connections to be blocked
+- **Resolution**: Added explicit `connect-src 'self' http: https: ws: wss:` to Content Security Policy
+- **Status**: ✅ Fixed
+- **Impact**: High - Real-time WebSocket features completely non-functional
+- **Date**: August 5, 2025
+- **Fix Applied**:
+  - Modified dashboard/nginx.conf line 27 to include `connect-src 'self' http: https: ws: wss:`
+  - Rebuilt dashboard container with `--no-cache` to apply nginx configuration changes
+  - Restarted dashboard service to activate new CSP
+- **Prevention**: Include WebSocket protocols in CSP from initial deployment, test real-time features on production servers
+- **Verification**:
+  ```bash
+  # Check CSP header includes WebSocket support
+  curl -I http://5.78.157.202:3000 | grep -i content-security
+  # Should show: connect-src 'self' http: https: ws: wss:
+  
+  # Dashboard should show "WebSocket: connected" instead of "disconnected"
+  ```
+- **Browser Error**: `Content Security Policy directive: "default-src 'self' http: https: data: blob: 'unsafe-inline'". Note that 'connect-src' was not explicitly set, so 'default-src' is used as a fallback.`
+
 ### BUG-010: AI Classification Parsing Failure - Markdown Code Blocks
 - **Symptom**: `WARNING: Failed to parse AI response, using fallback` logs in classifier service
 - **Root Cause**: OpenAI API returns JSON responses wrapped in markdown code blocks (`\`\`\`json ... \`\`\``), but code attempted to parse raw response as JSON
