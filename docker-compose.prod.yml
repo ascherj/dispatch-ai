@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # PostgreSQL Database with persistent storage
   postgres:
@@ -62,6 +60,7 @@ services:
     environment:
       PORT: 8000
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-secure_password_change_me}@postgres:5432/dispatchai
+      POSTGRES_URL: postgresql://postgres:${POSTGRES_PASSWORD:-secure_password_change_me}@postgres:5432/dispatchai
       KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
     ports:
@@ -87,6 +86,7 @@ services:
     environment:
       PORT: 8001
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-secure_password_change_me}@postgres:5432/dispatchai
+      POSTGRES_URL: postgresql://postgres:${POSTGRES_PASSWORD:-secure_password_change_me}@postgres:5432/dispatchai
       KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -113,9 +113,11 @@ services:
     environment:
       PORT: 8002
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-secure_password_change_me}@postgres:5432/dispatchai
+      POSTGRES_URL: postgresql://postgres:${POSTGRES_PASSWORD:-secure_password_change_me}@postgres:5432/dispatchai
       KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
       CLASSIFIER_SERVICE_URL: http://classifier:8001
-      DASHBOARD_URL: http://localhost:3000
+      DASHBOARD_URL: ${API_URL:-http://localhost:3000}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
     ports:
       - "8002:8002"
     depends_on:
@@ -137,11 +139,12 @@ services:
     build:
       context: ./dashboard
       dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${API_URL:-http://localhost:8002}
+        VITE_WS_URL: ${WS_URL:-ws://localhost:8002/ws}
     container_name: dispatchai-dashboard-prod
     environment:
       PORT: 3000
-      VITE_API_URL: http://localhost:8002
-      VITE_WS_URL: ws://localhost:8002/ws
     ports:
       - "3000:80"
     depends_on:
@@ -149,7 +152,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/"]
       interval: 30s
       timeout: 10s
       retries: 3
