@@ -41,6 +41,16 @@ structlog.configure(
 
 logger = structlog.get_logger()
 
+# Environment configuration (moved up to be available for CORS)
+DATABASE_URL = os.getenv(
+    "DATABASE_URL", "postgresql://postgres:postgres@postgres:5432/dispatchai"
+)
+KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "redpanda:9092")
+DASHBOARD_URL = os.getenv("DASHBOARD_URL", "http://localhost:3000")
+
+# CORS allowed origins (configurable for production)
+CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,https://localhost:3000,http://127.0.0.1:3000").split(",")
+
 app = FastAPI(
     title="DispatchAI Gateway Service",
     description="WebSocket and REST API gateway for real-time communication",
@@ -50,7 +60,7 @@ app = FastAPI(
 # Add CORS middleware to allow frontend access
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "https://localhost:3000"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -96,12 +106,6 @@ class HealthResponse(BaseModel):
     connected_clients: int
 
 
-# Environment configuration
-DATABASE_URL = os.getenv(
-    "DATABASE_URL", "postgresql://postgres:postgres@postgres:5432/dispatchai"
-)
-KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "redpanda:9092")
-DASHBOARD_URL = os.getenv("DASHBOARD_URL", "http://localhost:3000")
 
 
 # WebSocket connection manager
