@@ -48,6 +48,10 @@ function App() {
   const [stats, setStats] = useState<Stats | null>(null)
   const [editingIssue, setEditingIssue] = useState<EditingIssue | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    const saved = localStorage.getItem('theme')
+    return saved ? saved === 'dark' : true // Default to dark mode
+  })
 
   useEffect(() => {
     let ws: WebSocket | null = null
@@ -141,6 +145,16 @@ function App() {
       .catch(error => console.error('Error fetching stats:', error))
   }, [])
 
+  // Theme persistence effect
+  useEffect(() => {
+    localStorage.setItem('theme', isDarkMode ? 'dark' : 'light')
+    document.documentElement.setAttribute('data-theme', isDarkMode ? 'dark' : 'light')
+  }, [isDarkMode])
+
+  const toggleTheme = () => {
+    setIsDarkMode(!isDarkMode)
+  }
+
   const triggerClassification = async (issueId: number) => {
     try {
       const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8002'
@@ -223,10 +237,23 @@ function App() {
   return (
     <div className="App">
       <header className="header">
-        <h1>🤖 DispatchAI Dashboard</h1>
-        <div className="connection-status">
-          <span className={`status-indicator ${connectionStatus}`}></span>
-          <span>WebSocket: {connectionStatus}</span>
+        <h1>
+          <span className="logo-icon">⚡</span>
+          DispatchAI
+          <span className="dashboard-text">Dashboard</span>
+        </h1>
+        <div className="header-controls">
+          <button 
+            onClick={toggleTheme}
+            className="theme-toggle"
+            aria-label={`Switch to ${isDarkMode ? 'light' : 'dark'} mode`}
+          >
+            {isDarkMode ? '☀️' : '🌙'}
+          </button>
+          <div className="connection-status">
+            <span className={`status-indicator ${connectionStatus}`}></span>
+            <span>WebSocket: {connectionStatus}</span>
+          </div>
         </div>
       </header>
 
@@ -253,7 +280,7 @@ function App() {
 
       {stats && (stats.categories.length > 0 || stats.priorities.length > 0) && (
         <div className="analytics-container">
-          <h2>📊 Analytics</h2>
+          <h2>Analytics</h2>
           <div className="charts-grid">
             {stats.categories.length > 0 && (
               <div className="chart-card">
