@@ -29,6 +29,32 @@ This document tracks all bugs encountered during development, their root causes,
 
 ## Resolved Bugs
 
+### BUG-012: Dashboard API Requests Blocked by CORS Policy
+- **Symptom**: Browser console shows `Access to fetch at 'http://5.78.157.202:8002/api/issues' from origin 'http://5.78.157.202' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource` and `Error fetching issues: TypeError: Failed to fetch`
+- **Root Cause**: Gateway service CORS configuration only allowed localhost origins, but production dashboard runs on server IP `http://5.78.157.202` without port specification
+- **Resolution**: Added `http://5.78.157.202` to CORS_ORIGINS environment variable in production configuration
+- **Status**: ✅ Fixed
+- **Impact**: High - Dashboard API communication completely broken
+- **Date**: August 6, 2025
+- **Fix Applied**:
+  - Updated `.env.prod` line 21: `CORS_ORIGINS=http://5.78.157.202,http://5.78.157.202:3000,http://localhost:3000,https://dispatchai.ascher.dev`
+  - Recreated gateway container with `docker-compose -f docker-compose.prod.yml --env-file .env.prod up -d gateway`
+  - Verified CORS origins include server IP without port (since dashboard is served on port 80 mapped from port 3000)
+- **Prevention**: Include all production origins in CORS configuration from initial deployment, test API communication on production servers
+- **Verification**:
+  ```bash
+  # Test CORS preflight request
+  curl -H "Origin: http://5.78.157.202" -H "Access-Control-Request-Method: GET" -X OPTIONS http://5.78.157.202:8002/api/issues
+  # Should return: OK
+  
+  # Test actual API request
+  curl -H "Origin: http://5.78.157.202" http://5.78.157.202:8002/api/issues
+  # Should return JSON array of issues
+  
+  # Browser console should no longer show CORS errors
+  ```
+- **Technical Details**: Gateway service uses FastAPI CORSMiddleware which validates Origin header against allowed origins list. Dashboard served on port 80 (mapped from 3000) sends Origin: `http://5.78.157.202` (without port), requiring exact match in CORS_ORIGINS.
+
 ### BUG-011: WebSocket Connection Blocked by Content Security Policy
 - **Symptom**: Dashboard shows "WebSocket: disconnected" and browser console shows CSP violation: `Refused to connect to 'ws://5.78.157.202:8002/ws' because it violates the following Content Security Policy directive`
 - **Root Cause**: nginx CSP header had `default-src 'self' http: https: data: blob: 'unsafe-inline'` without explicit `connect-src`, causing WebSocket connections to be blocked

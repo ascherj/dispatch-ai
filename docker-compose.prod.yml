@@ -117,7 +117,7 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
       CLASSIFIER_SERVICE_URL: http://classifier:8001
       DASHBOARD_URL: ${API_URL:-http://localhost:3000}
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://5.78.157.202,http://5.78.157.202:3000,http://localhost:3000}
     ports:
       - "8002:8002"
     depends_on:
