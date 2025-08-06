@@ -16,6 +16,9 @@ GitHub repositories receive **hundreds or thousands of issues** that require man
 
 DispatchAI automates GitHub issue classification using **event-driven architecture** and **AI integration** while maintaining human oversight and continuous learning capabilities.
 
+![DispatchAI Dashboard](screenshot.png)
+*Real-time dashboard showing live issue classification with AI analysis, statistics, and manual correction capabilities*
+
 ### Technical Approach
 - **⚡ Event-Driven Architecture**: Kafka-based async processing prevents webhook timeouts
 - **🎯 AI Integration**: OpenAI GPT-4o-mini with circuit breaker patterns for reliability
