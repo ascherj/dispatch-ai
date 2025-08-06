@@ -23,6 +23,7 @@ import threading
 
 # Configure structured logging with INFO level
 import logging
+
 logging.basicConfig(level=logging.INFO)
 
 structlog.configure(
@@ -283,14 +284,19 @@ async def ai_classification(issue: IssueData) -> Dict[str, Any]:
             response_text = response_text[8:-4]  # Remove ```json\n and \n```
         elif response_text.startswith("```\n") and response_text.endswith("\n```"):
             response_text = response_text[4:-4]  # Remove ```\n and \n```
-        
-        logger.debug("AI response content", response_content=response.content[:500])  # Log first 500 chars
+
+        logger.debug(
+            "AI response content", response_content=response.content[:500]
+        )  # Log first 500 chars
         classification = json.loads(response_text)
 
         return classification
 
     except json.JSONDecodeError:
-        logger.warning("Failed to parse AI response, using fallback", response_content=response.content[:500])
+        logger.warning(
+            "Failed to parse AI response, using fallback",
+            response_content=response.content[:500],
+        )
         return fallback_classification(issue)
     except Exception as e:
         logger.error("AI classification failed", error=str(e))
@@ -670,4 +676,5 @@ logger.info("Started Kafka consumer thread")
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run("app:app", host="0.0.0.0", port=8001, reload=True, log_config=None)

@@ -49,7 +49,10 @@ KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "redpanda:9092")
 DASHBOARD_URL = os.getenv("DASHBOARD_URL", "http://localhost:3000")
 
 # CORS allowed origins (configurable for production)
-CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,https://localhost:3000,http://127.0.0.1:3000,http://5.78.157.202,http://5.78.157.202:3000").split(",")
+CORS_ORIGINS = os.getenv(
+    "CORS_ORIGINS",
+    "http://localhost:3000,https://localhost:3000,http://127.0.0.1:3000,http://5.78.157.202,http://5.78.157.202:3000",
+).split(",")
 
 app = FastAPI(
     title="DispatchAI Gateway Service",
@@ -104,8 +107,6 @@ class HealthResponse(BaseModel):
     service: str
     version: str
     connected_clients: int
-
-
 
 
 # WebSocket connection manager

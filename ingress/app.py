@@ -20,6 +20,7 @@ import json
 
 # Configure structured logging with INFO level
 import logging
+
 logging.basicConfig(level=logging.INFO)
 
 structlog.configure(
