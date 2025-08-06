@@ -75,7 +75,7 @@ class IssueData(BaseModel):
     id: int
     number: int
     title: str
-    body: str
+    body: Optional[str] = ""  # Allow None/null body, default to empty string
     labels: List[str]
     repository: str
     url: str
@@ -270,7 +270,7 @@ async def ai_classification(issue: IssueData) -> Dict[str, Any]:
         # Prepare the prompt
         prompt = CLASSIFICATION_PROMPT.format(
             title=issue.title,
-            body=issue.body[:2000],  # Limit body length
+            body=(issue.body or "")[:2000],  # Handle null body, limit body length
             repository=issue.repository,
         )
 
@@ -300,7 +300,7 @@ async def ai_classification(issue: IssueData) -> Dict[str, Any]:
 def fallback_classification(issue: IssueData) -> Dict[str, Any]:
     """Fallback classification using keyword matching"""
     title_lower = issue.title.lower()
-    body_lower = issue.body.lower()
+    body_lower = (issue.body or "").lower()  # Handle null body
     combined_text = f"{title_lower} {body_lower}"
 
     # Simple keyword-based classification

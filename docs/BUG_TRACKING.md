@@ -29,6 +29,32 @@ This document tracks all bugs encountered during development, their root causes,
 
 ## Resolved Bugs
 
+### BUG-013: GitHub Issues with Null Body Fields Fail Processing
+- **Symptom**: Classifier service fails with `1 validation error for IssueData body Input should be a valid string [type=string_type, input_value=None, input_type=NoneType]` when GitHub issues have empty body content
+- **Root Cause**: Pydantic model expects `body` field as required string, but GitHub webhooks send `null` for issues without body content
+- **Resolution**: Update IssueData model to allow Optional[str] with empty string default, handle null safely in processing logic
+- **Status**: ✅ Fixed
+- **Impact**: High - All GitHub issues without body content failed to process
+- **Date**: August 6, 2025
+- **Fix Applied**:
+  - Updated classifier/app.py line 78: `body: Optional[str] = ""` instead of `body: str`
+  - Fixed AI processing: `body=(issue.body or "")[:2000]` to handle null safely
+  - Fixed fallback classification: `body_lower = (issue.body or "").lower()` 
+  - Rebuilt classifier container with updated code
+- **Prevention**: Test webhook processing with various GitHub issue formats including empty bodies
+- **Verification**:
+  ```bash
+  # Test webhook with null body
+  curl -X POST http://5.78.157.202:8000/webhook/github \
+    -H "X-Hub-Signature-256: sha256=..." \
+    -H "X-GitHub-Event: issues" \
+    -d '{"action":"opened","issue":{"body":null,...}}'
+  
+  # Should process successfully and appear in API
+  curl http://5.78.157.202:8002/api/issues
+  ```
+- **Technical Details**: GitHub issues created without description have `"body": null` in webhook payload, requiring Optional type handling in Pydantic models and safe string operations in processing logic.
+
 ### BUG-012: Dashboard API Requests Blocked by CORS Policy
 - **Symptom**: Browser console shows `Access to fetch at 'http://5.78.157.202:8002/api/issues' from origin 'http://5.78.157.202' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource` and `Error fetching issues: TypeError: Failed to fetch`
 - **Root Cause**: Gateway service CORS configuration only allowed localhost origins, but production dashboard runs on server IP `http://5.78.157.202` without port specification
