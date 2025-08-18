@@ -22,16 +22,7 @@ interface EditingIssue {
   tags: string
 }
 
-interface ClassificationUpdate {
-  type: string
-  data: {
-    issue_id: number
-    category: string
-    priority: string
-    confidence: number
-    tags: string[]
-  }
-}
+// ClassificationUpdate interface removed - now handled by generic WebSocket messages
 
 interface Stats {
   total_issues: number
@@ -74,10 +65,59 @@ function App() {
 
       ws.onmessage = (event) => {
         try {
-          const message: ClassificationUpdate = JSON.parse(event.data)
+          const message = JSON.parse(event.data)
+          console.log('Received WebSocket message:', message)
 
-          if (message.type === 'classification_update') {
-            // Update the issue in the list
+          if (message.type === 'issue_update') {
+            console.log('Processing issue_update message')
+            
+            // Handle both raw issues and enriched issues  
+            if (message.topic === 'issues.enriched' && message.data.issue) {
+              // Enriched issue with classification data
+              const issueData = message.data.issue
+              const classification = message.data.classification
+              
+              console.log('Updating issue with classification:', issueData.number, classification)
+              
+              setIssues(prev => {
+                const existingIndex = prev.findIndex(issue => issue.number === issueData.number)
+                if (existingIndex >= 0) {
+                  // Update existing issue
+                  const updated = [...prev]
+                  updated[existingIndex] = {
+                    ...updated[existingIndex],
+                    category: classification?.category,
+                    priority: classification?.priority, 
+                    confidence: classification?.confidence,
+                    tags: classification?.tags || [],
+                    status: 'classified'
+                  }
+                  console.log('Updated existing issue')
+                  return updated
+                } else {
+                  // Add new issue
+                  const newIssue: Issue = {
+                    id: issueData.id,
+                    number: issueData.number,
+                    title: issueData.title,
+                    repository: issueData.repository,
+                    category: classification?.category,
+                    priority: classification?.priority,
+                    confidence: classification?.confidence,
+                    tags: classification?.tags || [],
+                    created_at: issueData.created_at,
+                    updated_at: issueData.updated_at,
+                    status: 'classified'
+                  }
+                  console.log('Added new issue:', newIssue)
+                  return [newIssue, ...prev]
+                }
+              })
+            } else if (message.topic === 'issues.raw') {
+              console.log('Received raw issue, will wait for enriched version')
+            }
+          } else if (message.type === 'classification_update') {
+            // Handle legacy classification_update messages
             setIssues(prev => prev.map(issue =>
               issue.id === message.data.issue_id
                 ? {
@@ -92,7 +132,7 @@ function App() {
             ))
           }
         } catch (error) {
-          console.error('Error parsing WebSocket message:', error)
+          console.error('Error parsing WebSocket message:', error, event.data)
         }
       }
 

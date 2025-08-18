@@ -9,6 +9,8 @@ from typing import Dict, Any, List, Optional, Set
 from datetime import datetime
 import asyncio
 import threading
+import time
+from contextlib import asynccontextmanager
 
 import structlog
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
@@ -54,6 +56,7 @@ CORS_ORIGINS = os.getenv(
     "http://localhost:3000,https://localhost:3000,http://127.0.0.1:3000,http://5.78.157.202,http://5.78.157.202:3000",
 ).split(",")
 
+# We'll set the lifespan after defining it below
 app = FastAPI(
     title="DispatchAI Gateway Service",
     description="WebSocket and REST API gateway for real-time communication",
@@ -140,6 +143,38 @@ class ConnectionManager:
 
 
 manager = ConnectionManager()
+
+
+# Use startup and shutdown events to manage Kafka consumer lifecycle
+@app.on_event("startup")
+async def startup_event():
+    """Initialize Kafka consumer on startup"""
+    global kafka_consumer_task
+    print("DEBUG: STARTUP EVENT TRIGGERED!")  # Debug print
+    logger.info("Starting DispatchAI Gateway Service")
+    
+    # Start Kafka consumer
+    kafka_consumer = RobustKafkaConsumer(manager)
+    kafka_consumer_task = asyncio.create_task(kafka_consumer.start())
+    print("DEBUG: KAFKA CONSUMER TASK CREATED!")  # Debug print
+    logger.info("Kafka consumer task started")
+
+
+@app.on_event("shutdown") 
+async def shutdown_event():
+    """Cleanup on shutdown"""
+    global kafka_consumer_task
+    logger.info("Shutting down DispatchAI Gateway Service")
+    
+    # Stop Kafka consumer
+    if kafka_consumer_task:
+        kafka_consumer_task.cancel()
+        try:
+            await kafka_consumer_task
+        except asyncio.CancelledError:
+            pass
+    
+    logger.info("Gateway service shutdown complete")
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -619,79 +654,150 @@ async def root():
     """)
 
 
-# Kafka consumer for real-time updates
-async def process_kafka_message(message):
-    """Process a Kafka message and broadcast to WebSocket clients"""
-    try:
-        # Parse the message
-        event_data = json.loads(message.value.decode("utf-8"))
-
-        # Determine message type and format for WebSocket
-        websocket_message = {
-            "type": "issue_update",
-            "timestamp": datetime.now().isoformat(),
-            "data": event_data,
-        }
-
-        # Broadcast to all connected WebSocket clients
-        await manager.broadcast(json.dumps(websocket_message))
-
-        logger.info(
-            "Broadcasted Kafka message to WebSocket clients",
-            topic=message.topic,
-            connected_clients=len(manager.active_connections),
-        )
-
-    except Exception as e:
-        logger.error(
-            "Failed to process Kafka message", error=str(e), message=str(message.value)
-        )
+# Old process_kafka_message function removed - now handled by RobustKafkaConsumer
 
 
-def kafka_consumer_thread():
-    """Run Kafka consumer in a separate thread"""
-    try:
-        print("DEBUG: Starting Kafka consumer thread...")  # Debug print
-        consumer = KafkaConsumer(
-            "issues.enriched",  # Listen for enriched issues
-            "issues.raw",  # Also listen for raw issues
+# Global variables for consumer management
+kafka_consumer_task = None
+kafka_consumer_running = False
+
+
+class RobustKafkaConsumer:
+    """Robust Kafka consumer with reconnection and proper async integration"""
+    
+    def __init__(self, websocket_manager: ConnectionManager):
+        self.manager = websocket_manager
+        self.consumer = None
+        self.running = False
+        self.reconnect_attempts = 0
+        self.max_reconnect_attempts = 10
+        self.reconnect_delay = 5  # seconds
+        
+    async def start(self):
+        """Start the Kafka consumer with reconnection logic"""
+        print("DEBUG: RobustKafkaConsumer.start() called!")  # Debug print
+        self.running = True
+        while self.running:
+            try:
+                await self._consume_messages()
+            except Exception as e:
+                print(f"DEBUG: Kafka consumer error: {e}")  # Debug print
+                logger.error("Kafka consumer error", error=str(e))
+                self.reconnect_attempts += 1
+                
+                if self.reconnect_attempts >= self.max_reconnect_attempts:
+                    logger.error("Max reconnection attempts reached, stopping consumer")
+                    break
+                    
+                wait_time = min(self.reconnect_delay * self.reconnect_attempts, 60)
+                logger.info("Attempting to reconnect Kafka consumer", 
+                           attempt=self.reconnect_attempts, 
+                           wait_time=wait_time)
+                await asyncio.sleep(wait_time)
+    
+    async def _consume_messages(self):
+        """Consume messages from Kafka topics"""
+        try:
+            # Create consumer in a thread-safe way
+            consumer = await asyncio.get_event_loop().run_in_executor(
+                None, self._create_consumer
+            )
+            self.consumer = consumer
+            self.reconnect_attempts = 0  # Reset on successful connection
+            
+            print("DEBUG: Kafka consumer connected successfully!")  # Debug print
+            logger.info("Kafka consumer connected successfully", 
+                       topics=["issues.enriched", "issues.raw"])
+            
+            # Process messages
+            while self.running:
+                # Get messages in a non-blocking way
+                message_batch = await asyncio.get_event_loop().run_in_executor(
+                    None, lambda: consumer.poll(timeout_ms=1000, max_records=10)
+                )
+                
+                if message_batch:
+                    print(f"DEBUG: Received {len(message_batch)} message batches")  # Debug print
+                    for topic_partition, messages in message_batch.items():
+                        print(f"DEBUG: Processing {len(messages)} messages from {topic_partition}")  # Debug print
+                        for message in messages:
+                            await self._process_message(message)
+                else:
+                    # Small delay when no messages to prevent busy waiting
+                    await asyncio.sleep(0.1)
+                    
+        except Exception as e:
+            logger.error("Error in Kafka message consumption", error=str(e))
+            raise
+        finally:
+            if self.consumer:
+                await asyncio.get_event_loop().run_in_executor(
+                    None, self.consumer.close
+                )
+    
+    def _create_consumer(self):
+        """Create Kafka consumer - runs in executor thread"""
+        return KafkaConsumer(
+            "issues.enriched",
+            "issues.raw", 
             bootstrap_servers=[KAFKA_BOOTSTRAP_SERVERS],
             value_deserializer=lambda m: m,
             group_id="dispatchai-gateway",
-            auto_offset_reset="earliest",  # Get existing messages for testing
+            auto_offset_reset="earliest",
             enable_auto_commit=True,
-            consumer_timeout_ms=5000,  # Longer timeout for debugging
+            consumer_timeout_ms=1000,  # Short timeout for poll
+            fetch_max_wait_ms=500,
         )
-
-        print("DEBUG: Consumer created, starting message loop...")  # Debug print
-        logger.info(
-            "Gateway Kafka consumer started", topics=["issues.enriched", "issues.raw"]
-        )
-
-        for message in consumer:
-            try:
-                print(f"DEBUG: Received message from {message.topic}")  # Debug print
-                # Run the async processing in the event loop
-                # Since we're in a thread, we need to use asyncio.run for each message
-                asyncio.run(process_kafka_message(message))
-            except Exception as e:
-                print(f"DEBUG: Error processing message: {e}")  # Debug print
-                logger.error("Error processing Kafka message in gateway", error=str(e))
-
-    except Exception as e:
-        print(f"DEBUG: Consumer thread error: {e}")  # Debug print
-        logger.error("Gateway Kafka consumer error", error=str(e))
+    
+    async def _process_message(self, message):
+        """Process a single Kafka message and broadcast via WebSocket"""
+        try:
+            print(f"DEBUG: Processing message from {message.topic}")  # Debug print
+            
+            # Parse message
+            event_data = json.loads(message.value.decode("utf-8"))
+            
+            # Create WebSocket message
+            websocket_message = {
+                "type": "issue_update",
+                "topic": message.topic,
+                "timestamp": datetime.now().isoformat(),
+                "data": event_data,
+            }
+            
+            print(f"DEBUG: Broadcasting to {len(self.manager.active_connections)} WebSocket clients")  # Debug print
+            
+            # Broadcast to all connected WebSocket clients
+            await self.manager.broadcast(json.dumps(websocket_message))
+            
+            print(f"DEBUG: Successfully broadcasted message from {message.topic}")  # Debug print
+            
+            logger.info(
+                "Broadcasted Kafka message to WebSocket clients",
+                topic=message.topic,
+                connected_clients=len(self.manager.active_connections),
+                message_type=websocket_message["type"]
+            )
+            
+        except Exception as e:
+            logger.error("Error processing Kafka message", 
+                        error=str(e), 
+                        topic=message.topic if message else "unknown")
+    
+    async def stop(self):
+        """Stop the Kafka consumer gracefully"""
+        self.running = False
+        if self.consumer:
+            await asyncio.get_event_loop().run_in_executor(
+                None, self.consumer.close
+            )
 
 
 if __name__ == "__main__":
     import uvicorn
 
-    # Start Kafka consumer in background thread
-    kafka_thread = threading.Thread(target=kafka_consumer_thread, daemon=True)
-    kafka_thread.start()
-
+    # Kafka consumer is now managed by FastAPI lifespan
     uvicorn.run("app:app", host="0.0.0.0", port=8002, reload=True, log_config=None)
 else:
-    # When running in production (not as main), start Kafka consumer
-    kafka_thread = threading.Thread(target=kafka_consumer_thread, daemon=True)
-    kafka_thread.start()
+    # When running in production, Kafka consumer is managed by FastAPI lifespan
+    pass
