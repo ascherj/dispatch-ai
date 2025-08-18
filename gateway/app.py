@@ -8,9 +8,6 @@ import json
 from typing import Dict, Any, List, Optional, Set
 from datetime import datetime
 import asyncio
-import threading
-import time
-from contextlib import asynccontextmanager
 
 import structlog
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
@@ -152,7 +149,7 @@ async def startup_event():
     global kafka_consumer_task
     print("DEBUG: STARTUP EVENT TRIGGERED!")  # Debug print
     logger.info("Starting DispatchAI Gateway Service")
-    
+
     # Start Kafka consumer
     kafka_consumer = RobustKafkaConsumer(manager)
     kafka_consumer_task = asyncio.create_task(kafka_consumer.start())
@@ -160,12 +157,12 @@ async def startup_event():
     logger.info("Kafka consumer task started")
 
 
-@app.on_event("shutdown") 
+@app.on_event("shutdown")
 async def shutdown_event():
     """Cleanup on shutdown"""
     global kafka_consumer_task
     logger.info("Shutting down DispatchAI Gateway Service")
-    
+
     # Stop Kafka consumer
     if kafka_consumer_task:
         kafka_consumer_task.cancel()
@@ -173,7 +170,7 @@ async def shutdown_event():
             await kafka_consumer_task
         except asyncio.CancelledError:
             pass
-    
+
     logger.info("Gateway service shutdown complete")
 
 
@@ -664,7 +661,7 @@ kafka_consumer_running = False
 
 class RobustKafkaConsumer:
     """Robust Kafka consumer with reconnection and proper async integration"""
-    
+
     def __init__(self, websocket_manager: ConnectionManager):
         self.manager = websocket_manager
         self.consumer = None
@@ -672,7 +669,7 @@ class RobustKafkaConsumer:
         self.reconnect_attempts = 0
         self.max_reconnect_attempts = 10
         self.reconnect_delay = 5  # seconds
-        
+
     async def start(self):
         """Start the Kafka consumer with reconnection logic"""
         print("DEBUG: RobustKafkaConsumer.start() called!")  # Debug print
@@ -684,17 +681,19 @@ class RobustKafkaConsumer:
                 print(f"DEBUG: Kafka consumer error: {e}")  # Debug print
                 logger.error("Kafka consumer error", error=str(e))
                 self.reconnect_attempts += 1
-                
+
                 if self.reconnect_attempts >= self.max_reconnect_attempts:
                     logger.error("Max reconnection attempts reached, stopping consumer")
                     break
-                    
+
                 wait_time = min(self.reconnect_delay * self.reconnect_attempts, 60)
-                logger.info("Attempting to reconnect Kafka consumer", 
-                           attempt=self.reconnect_attempts, 
-                           wait_time=wait_time)
+                logger.info(
+                    "Attempting to reconnect Kafka consumer",
+                    attempt=self.reconnect_attempts,
+                    wait_time=wait_time,
+                )
                 await asyncio.sleep(wait_time)
-    
+
     async def _consume_messages(self):
         """Consume messages from Kafka topics"""
         try:
@@ -704,28 +703,34 @@ class RobustKafkaConsumer:
             )
             self.consumer = consumer
             self.reconnect_attempts = 0  # Reset on successful connection
-            
+
             print("DEBUG: Kafka consumer connected successfully!")  # Debug print
-            logger.info("Kafka consumer connected successfully", 
-                       topics=["issues.enriched", "issues.raw"])
-            
+            logger.info(
+                "Kafka consumer connected successfully",
+                topics=["issues.enriched", "issues.raw"],
+            )
+
             # Process messages
             while self.running:
                 # Get messages in a non-blocking way
                 message_batch = await asyncio.get_event_loop().run_in_executor(
                     None, lambda: consumer.poll(timeout_ms=1000, max_records=10)
                 )
-                
+
                 if message_batch:
-                    print(f"DEBUG: Received {len(message_batch)} message batches")  # Debug print
+                    print(
+                        f"DEBUG: Received {len(message_batch)} message batches"
+                    )  # Debug print
                     for topic_partition, messages in message_batch.items():
-                        print(f"DEBUG: Processing {len(messages)} messages from {topic_partition}")  # Debug print
+                        print(
+                            f"DEBUG: Processing {len(messages)} messages from {topic_partition}"
+                        )  # Debug print
                         for message in messages:
                             await self._process_message(message)
                 else:
                     # Small delay when no messages to prevent busy waiting
                     await asyncio.sleep(0.1)
-                    
+
         except Exception as e:
             logger.error("Error in Kafka message consumption", error=str(e))
             raise
@@ -734,12 +739,12 @@ class RobustKafkaConsumer:
                 await asyncio.get_event_loop().run_in_executor(
                     None, self.consumer.close
                 )
-    
+
     def _create_consumer(self):
         """Create Kafka consumer - runs in executor thread"""
         return KafkaConsumer(
             "issues.enriched",
-            "issues.raw", 
+            "issues.raw",
             bootstrap_servers=[KAFKA_BOOTSTRAP_SERVERS],
             value_deserializer=lambda m: m,
             group_id="dispatchai-gateway",
@@ -748,15 +753,15 @@ class RobustKafkaConsumer:
             consumer_timeout_ms=1000,  # Short timeout for poll
             fetch_max_wait_ms=500,
         )
-    
+
     async def _process_message(self, message):
         """Process a single Kafka message and broadcast via WebSocket"""
         try:
             print(f"DEBUG: Processing message from {message.topic}")  # Debug print
-            
+
             # Parse message
             event_data = json.loads(message.value.decode("utf-8"))
-            
+
             # Create WebSocket message
             websocket_message = {
                 "type": "issue_update",
@@ -764,33 +769,37 @@ class RobustKafkaConsumer:
                 "timestamp": datetime.now().isoformat(),
                 "data": event_data,
             }
-            
-            print(f"DEBUG: Broadcasting to {len(self.manager.active_connections)} WebSocket clients")  # Debug print
-            
+
+            print(
+                f"DEBUG: Broadcasting to {len(self.manager.active_connections)} WebSocket clients"
+            )  # Debug print
+
             # Broadcast to all connected WebSocket clients
             await self.manager.broadcast(json.dumps(websocket_message))
-            
-            print(f"DEBUG: Successfully broadcasted message from {message.topic}")  # Debug print
-            
+
+            print(
+                f"DEBUG: Successfully broadcasted message from {message.topic}"
+            )  # Debug print
+
             logger.info(
                 "Broadcasted Kafka message to WebSocket clients",
                 topic=message.topic,
                 connected_clients=len(self.manager.active_connections),
-                message_type=websocket_message["type"]
+                message_type=websocket_message["type"],
             )
-            
+
         except Exception as e:
-            logger.error("Error processing Kafka message", 
-                        error=str(e), 
-                        topic=message.topic if message else "unknown")
-    
+            logger.error(
+                "Error processing Kafka message",
+                error=str(e),
+                topic=message.topic if message else "unknown",
+            )
+
     async def stop(self):
         """Stop the Kafka consumer gracefully"""
         self.running = False
         if self.consumer:
-            await asyncio.get_event_loop().run_in_executor(
-                None, self.consumer.close
-            )
+            await asyncio.get_event_loop().run_in_executor(None, self.consumer.close)
 
 
 if __name__ == "__main__":
