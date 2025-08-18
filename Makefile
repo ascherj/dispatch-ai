@@ -245,12 +245,37 @@ build-service: ## Build specific service (usage: make build-service SERVICE=ingr
 	cd infra && docker compose build $(SERVICE)
 
 # Database Management
-db-reset: ## Reset the database with fresh schema
-	@echo "Resetting database..."
+db-reset: ## Reset the development database with fresh schema
+	@echo "Resetting development database..."
 	@make dev-down
 	cd infra && docker volume rm infra_postgres_data 2>/dev/null || true
 	@make dev-up
-	@echo "Database reset complete"
+	@echo "Development database reset complete"
+
+db-reset-prod: ## Reset the production database with fresh schema (DESTRUCTIVE!)
+	@echo "⚠️  WARNING: This will PERMANENTLY DELETE all production data!"
+	@echo "Type 'RESET_PROD_DB' to confirm:"
+	@read confirmation && [ "$$confirmation" = "RESET_PROD_DB" ] || (echo "Reset cancelled" && exit 1)
+	@echo "Stopping production services..."
+	docker-compose -f docker-compose.prod.yml --env-file .env.prod down
+	@echo "Removing production database volume..."
+	docker volume rm dispatchai_postgres_data 2>/dev/null || true
+	@echo "Starting production services..."
+	docker-compose -f docker-compose.prod.yml --env-file .env.prod up -d
+	@echo "Production database reset complete"
+
+db-reset-data-only: ## Reset database data but keep schema (development)
+	@echo "Resetting database data only..."
+	@make db-query SQL="TRUNCATE TABLE dispatchai.manual_corrections, dispatchai.similar_issues, dispatchai.processing_logs, dispatchai.enriched_issues, dispatchai.issues RESTART IDENTITY CASCADE;"
+	@echo "Database data cleared - no test data inserted"
+
+db-reset-prod-data-only: ## Reset production database data but keep schema (DESTRUCTIVE!)
+	@echo "⚠️  WARNING: This will PERMANENTLY DELETE all production data!"
+	@echo "Type 'RESET_PROD_DATA' to confirm:"
+	@read confirmation && [ "$$confirmation" = "RESET_PROD_DATA" ] || (echo "Reset cancelled" && exit 1)
+	@echo "Truncating production data..."
+	docker exec dispatchai-postgres-prod psql -U postgres -d dispatchai -c "TRUNCATE TABLE dispatchai.manual_corrections, dispatchai.similar_issues, dispatchai.processing_logs, dispatchai.enriched_issues, dispatchai.issues RESTART IDENTITY CASCADE;"
+	@echo "Production database data cleared - no test data inserted"
 
 db-shell: ## Open PostgreSQL shell
 	@echo "Opening PostgreSQL shell..."
