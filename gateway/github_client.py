@@ -37,6 +37,18 @@ class SyncResult(BaseModel):
     error_message: Optional[str] = None
     last_issue_updated: Optional[str] = None
 
+class GitHubOrganization(BaseModel):
+    """GitHub organization data model"""
+    id: int
+    login: str
+    name: Optional[str] = None
+    description: Optional[str] = None
+    avatar_url: str
+    html_url: str
+    type: str  # "Organization" or "User"
+    public_repos: int
+    total_private_repos: Optional[int] = None
+
 class GitHubAPIClient:
     """GitHub API client for authenticated requests"""
 
@@ -103,6 +115,141 @@ class GitHubAPIClient:
             if page > 10:  # Max 1000 repos
                 break
 
+        return repositories
+
+    async def get_user_organizations(self) -> List[GitHubOrganization]:
+        """Get organizations and user account that the authenticated user has repository access to"""
+        organizations = []
+
+        # First, get the authenticated user's own account
+        try:
+            user_response = await self.session.get(f"{self.base_url}/user")
+            user_response.raise_for_status()
+            user_data = user_response.json()
+
+            # Add user's own account as an "organization"
+            user_org = GitHubOrganization(
+                id=user_data["id"],
+                login=user_data["login"],
+                name=user_data.get("name"),
+                description=user_data.get("bio"),
+                avatar_url=user_data["avatar_url"],
+                html_url=user_data["html_url"],
+                type="User",
+                public_repos=user_data.get("public_repos", 0),
+                total_private_repos=user_data.get("total_private_repos")
+            )
+            organizations.append(user_org)
+
+        except Exception as e:
+            logger.error("Error fetching user account", error=str(e))
+
+        # Then get organizations the user belongs to
+        try:
+            orgs_response = await self.session.get(f"{self.base_url}/user/orgs")
+            orgs_response.raise_for_status()
+            orgs_data = orgs_response.json()
+
+            for org_data in orgs_data:
+                try:
+                    org = GitHubOrganization(
+                        id=org_data["id"],
+                        login=org_data["login"],
+                        name=org_data.get("name"),
+                        description=org_data.get("description"),
+                        avatar_url=org_data["avatar_url"],
+                        html_url=org_data["html_url"],
+                        type="Organization",
+                        public_repos=org_data.get("public_repos", 0)
+                    )
+                    organizations.append(org)
+
+                except Exception as e:
+                    logger.error("Error parsing organization", org_id=org_data.get("id"), error=str(e))
+
+        except Exception as e:
+            logger.error("Error fetching organizations", error=str(e))
+
+        logger.info("Fetched user organizations", count=len(organizations))
+        return organizations
+
+    async def get_organization_repositories(self, org_login: str, per_page: int = 100) -> List[Dict[str, Any]]:
+        """Get repositories for a specific organization or user"""
+        repositories = []
+        page = 1
+
+        # Determine the endpoint based on whether this is a user or organization
+        # Try user repos first, then org repos if that fails
+        endpoints_to_try = [
+            f"{self.base_url}/users/{org_login}/repos",  # User repositories
+            f"{self.base_url}/orgs/{org_login}/repos"    # Organization repositories
+        ]
+
+        for endpoint in endpoints_to_try:
+            try:
+                page = 1
+                repositories = []
+
+                while True:
+                    response = await self.session.get(
+                        endpoint,
+                        params={
+                            "per_page": per_page,
+                            "page": page,
+                            "sort": "updated",
+                            "direction": "desc"
+                        }
+                    )
+
+                    if response.status_code == 404:
+                        # Try next endpoint
+                        break
+
+                    response.raise_for_status()
+
+                    page_repos = response.json()
+                    if not page_repos:
+                        break
+
+                    # Filter repositories where user has access
+                    accessible_repos = []
+                    for repo in page_repos:
+                        # Check if user has access to this repository
+                        permissions = repo.get("permissions", {})
+                        if permissions.get("pull", False) or permissions.get("push", False) or permissions.get("admin", False):
+                            accessible_repos.append(repo)
+
+                    repositories.extend(accessible_repos)
+
+                    # Check rate limiting
+                    remaining = int(response.headers.get("X-RateLimit-Remaining", 0))
+                    if remaining < 10:
+                        logger.warning("Approaching GitHub API rate limit", remaining=remaining)
+                        break
+
+                    page += 1
+
+                    # Safety limit
+                    if page > 10:  # Max 1000 repos
+                        break
+
+                # If we got repositories, we found the right endpoint
+                if repositories:
+                    break
+
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 404:
+                    continue  # Try next endpoint
+                else:
+                    logger.error("Error fetching organization repositories",
+                               org=org_login, endpoint=endpoint, status=e.response.status_code)
+                    break
+            except Exception as e:
+                logger.error("Unexpected error fetching organization repositories",
+                           org=org_login, endpoint=endpoint, error=str(e))
+                break
+
+        logger.info("Fetched organization repositories", org=org_login, count=len(repositories))
         return repositories
 
     async def get_repository_issues(

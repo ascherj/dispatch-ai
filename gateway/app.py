@@ -20,7 +20,7 @@ from psycopg2.extras import RealDictCursor
 import httpx
 from kafka import KafkaConsumer
 from jose import jwt, JWTError
-from github_client import GitHubAPIClient, SyncResult, validate_public_repository, parse_github_url
+from github_client import GitHubAPIClient, SyncResult, GitHubOrganization, validate_public_repository, parse_github_url
 
 # Configure structured logging
 structlog.configure(
@@ -141,6 +141,21 @@ class PublicRepositoryRequest(BaseModel):
 class DisconnectRepositoryResponse(BaseModel):
     success: bool
     message: str
+
+class OrganizationResponse(BaseModel):
+    id: int
+    login: str
+    name: Optional[str] = None
+    description: Optional[str] = None
+    avatar_url: str
+    html_url: str
+    type: str  # "Organization" or "User"
+    public_repos: int
+    total_private_repos: Optional[int] = None
+
+class OrganizationRepositoriesResponse(BaseModel):
+    organization: str
+    repositories: List[RepositoryResponse]
 
 # Authentication helper functions
 def verify_jwt_token(token: str) -> dict:
@@ -827,6 +842,116 @@ async def disconnect_repository(
     except Exception as e:
         logger.error("Error disconnecting repository", user_id=user_id, error=str(e))
         raise HTTPException(status_code=500, detail="Failed to disconnect repository")
+
+# Organization and Repository Management Endpoints
+
+@app.get("/api/organizations", response_model=List[OrganizationResponse])
+async def get_user_organizations(current_user: dict = Depends(get_current_user_required)):
+    """Get organizations and user account that the authenticated user has repository access to"""
+    try:
+        user_id = current_user["sub"]
+
+        # Get user's GitHub access token
+        github_token = await get_user_github_token(user_id)
+        if not github_token:
+            raise HTTPException(status_code=401, detail="GitHub token not found")
+
+        # Fetch organizations using GitHub API client
+        async with GitHubAPIClient(github_token) as github_client:
+            organizations = await github_client.get_user_organizations()
+
+        # Convert to response models
+        result = []
+        for org in organizations:
+            result.append(OrganizationResponse(
+                id=org.id,
+                login=org.login,
+                name=org.name,
+                description=org.description,
+                avatar_url=org.avatar_url,
+                html_url=org.html_url,
+                type=org.type,
+                public_repos=org.public_repos,
+                total_private_repos=org.total_private_repos
+            ))
+
+        logger.info("Fetched user organizations", user_id=user_id, count=len(result))
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error fetching organizations", user_id=current_user.get("sub"), error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to fetch organizations")
+
+@app.get("/api/organizations/{org_login}/repositories", response_model=OrganizationRepositoriesResponse)
+async def get_organization_repositories(
+    org_login: str,
+    current_user: dict = Depends(get_current_user_required)
+):
+    """Get repositories for a specific organization or user"""
+    try:
+        user_id = current_user["sub"]
+
+        # Get user's GitHub access token
+        github_token = await get_user_github_token(user_id)
+        if not github_token:
+            raise HTTPException(status_code=401, detail="GitHub token not found")
+
+        # Fetch organization repositories using GitHub API client
+        async with GitHubAPIClient(github_token) as github_client:
+            repositories = await github_client.get_organization_repositories(org_login)
+
+        # Get sync status from database for user's connected repositories
+        conn = psycopg2.connect(DATABASE_URL)
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT repository_owner, repository_name, last_sync_at, issues_synced, sync_status
+                FROM dispatchai.repository_syncs
+                WHERE user_id = %s
+            """, (user_id,))
+            sync_data = {f"{row[0]}/{row[1]}": {
+                "last_sync_at": row[2].isoformat() if row[2] else None,
+                "issues_synced": row[3],
+                "sync_status": row[4]
+            } for row in cur.fetchall()}
+
+        conn.close()
+
+        # Build response with repository information and sync status
+        repository_responses = []
+        for repo in repositories:
+            full_name = repo["full_name"]
+            sync_info = sync_data.get(full_name, {})
+
+            repository_responses.append(RepositoryResponse(
+                owner=repo["owner"]["login"],
+                name=repo["name"],
+                full_name=full_name,
+                permissions={
+                    "admin": repo["permissions"]["admin"],
+                    "push": repo["permissions"]["push"],
+                    "pull": repo["permissions"]["pull"]
+                },
+                last_sync_at=sync_info.get("last_sync_at"),
+                issues_synced=sync_info.get("issues_synced", 0),
+                sync_status=sync_info.get("sync_status")
+            ))
+
+        logger.info("Fetched organization repositories",
+                   user_id=user_id, org=org_login, count=len(repository_responses))
+
+        return OrganizationRepositoriesResponse(
+            organization=org_login,
+            repositories=repository_responses
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error fetching organization repositories",
+                    user_id=current_user.get("sub"), org=org_login, error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to fetch organization repositories")
 
 
 @app.post("/api/issues/{issue_id}/correct")
