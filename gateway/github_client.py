@@ -12,8 +12,10 @@ from pydantic import BaseModel
 
 logger = structlog.get_logger()
 
+
 class GitHubIssue(BaseModel):
     """GitHub issue data model"""
+
     id: int
     number: int
     title: str
@@ -28,16 +30,20 @@ class GitHubIssue(BaseModel):
     closed_at: Optional[str] = None
     html_url: str
 
+
 class SyncResult(BaseModel):
     """Result of a repository sync operation"""
+
     success: bool
     issues_fetched: int
     issues_stored: int
     error_message: Optional[str] = None
     last_issue_updated: Optional[str] = None
 
+
 class GitHubOrganization(BaseModel):
     """GitHub organization data model"""
+
     id: int
     login: str
     name: Optional[str] = None
@@ -47,6 +53,7 @@ class GitHubOrganization(BaseModel):
     type: str  # "Organization" or "User"
     public_repos: int
     total_private_repos: Optional[int] = None
+
 
 class GitHubAPIClient:
     """GitHub API client for authenticated requests"""
@@ -62,9 +69,9 @@ class GitHubAPIClient:
             headers={
                 "Authorization": f"token {self.access_token}",
                 "Accept": "application/vnd.github.v3+json",
-                "User-Agent": "DispatchAI/1.0"
+                "User-Agent": "DispatchAI/1.0",
             },
-            timeout=30.0
+            timeout=30.0,
         )
         return self
 
@@ -91,8 +98,8 @@ class GitHubAPIClient:
                     "per_page": per_page,
                     "page": page,
                     "sort": "updated",
-                    "direction": "desc"
-                }
+                    "direction": "desc",
+                },
             )
             response.raise_for_status()
 
@@ -136,7 +143,7 @@ class GitHubAPIClient:
                 html_url=user_data["html_url"],
                 type="User",
                 public_repos=user_data.get("public_repos", 0),
-                total_private_repos=user_data.get("total_private_repos")
+                total_private_repos=user_data.get("total_private_repos"),
             )
             organizations.append(user_org)
 
@@ -157,14 +164,20 @@ class GitHubAPIClient:
                         name=org_data.get("name"),
                         description=org_data.get("description"),
                         avatar_url=org_data["avatar_url"],
-                        html_url=org_data.get("html_url", f"https://github.com/{org_data['login']}"),
+                        html_url=org_data.get(
+                            "html_url", f"https://github.com/{org_data['login']}"
+                        ),
                         type="Organization",
-                        public_repos=org_data.get("public_repos", 0)
+                        public_repos=org_data.get("public_repos", 0),
                     )
                     organizations.append(org)
 
                 except Exception as e:
-                    logger.error("Error parsing organization", org_id=org_data.get("id"), error=str(e))
+                    logger.error(
+                        "Error parsing organization",
+                        org_id=org_data.get("id"),
+                        error=str(e),
+                    )
 
         except Exception as e:
             logger.error("Error fetching organizations", error=str(e))
@@ -172,7 +185,9 @@ class GitHubAPIClient:
         logger.info("Fetched user organizations", count=len(organizations))
         return organizations
 
-    async def get_organization_repositories(self, org_login: str, per_page: int = 100) -> List[Dict[str, Any]]:
+    async def get_organization_repositories(
+        self, org_login: str, per_page: int = 100
+    ) -> List[Dict[str, Any]]:
         """Get repositories for a specific organization or user"""
         repositories = []
         page = 1
@@ -181,7 +196,7 @@ class GitHubAPIClient:
         # Try user repos first, then org repos if that fails
         endpoints_to_try = [
             f"{self.base_url}/users/{org_login}/repos",  # User repositories
-            f"{self.base_url}/orgs/{org_login}/repos"    # Organization repositories
+            f"{self.base_url}/orgs/{org_login}/repos",  # Organization repositories
         ]
 
         for endpoint in endpoints_to_try:
@@ -196,8 +211,8 @@ class GitHubAPIClient:
                             "per_page": per_page,
                             "page": page,
                             "sort": "updated",
-                            "direction": "desc"
-                        }
+                            "direction": "desc",
+                        },
                     )
 
                     if response.status_code == 404:
@@ -215,7 +230,11 @@ class GitHubAPIClient:
                     for repo in page_repos:
                         # Check if user has access to this repository
                         permissions = repo.get("permissions", {})
-                        if permissions.get("pull", False) or permissions.get("push", False) or permissions.get("admin", False):
+                        if (
+                            permissions.get("pull", False)
+                            or permissions.get("push", False)
+                            or permissions.get("admin", False)
+                        ):
                             accessible_repos.append(repo)
 
                     repositories.extend(accessible_repos)
@@ -223,7 +242,9 @@ class GitHubAPIClient:
                     # Check rate limiting
                     remaining = int(response.headers.get("X-RateLimit-Remaining", 0))
                     if remaining < 10:
-                        logger.warning("Approaching GitHub API rate limit", remaining=remaining)
+                        logger.warning(
+                            "Approaching GitHub API rate limit", remaining=remaining
+                        )
                         break
 
                     page += 1
@@ -240,15 +261,25 @@ class GitHubAPIClient:
                 if e.response.status_code == 404:
                     continue  # Try next endpoint
                 else:
-                    logger.error("Error fetching organization repositories",
-                               org=org_login, endpoint=endpoint, status=e.response.status_code)
+                    logger.error(
+                        "Error fetching organization repositories",
+                        org=org_login,
+                        endpoint=endpoint,
+                        status=e.response.status_code,
+                    )
                     break
             except Exception as e:
-                logger.error("Unexpected error fetching organization repositories",
-                           org=org_login, endpoint=endpoint, error=str(e))
+                logger.error(
+                    "Unexpected error fetching organization repositories",
+                    org=org_login,
+                    endpoint=endpoint,
+                    error=str(e),
+                )
                 break
 
-        logger.info("Fetched organization repositories", org=org_login, count=len(repositories))
+        logger.info(
+            "Fetched organization repositories", org=org_login, count=len(repositories)
+        )
         return repositories
 
     async def get_repository_issues(
@@ -258,7 +289,7 @@ class GitHubAPIClient:
         state: str = "all",
         since: Optional[str] = None,
         per_page: int = 100,
-        max_pages: int = 10
+        max_pages: int = 10,
     ) -> List[GitHubIssue]:
         """
         Get issues from a repository
@@ -278,7 +309,7 @@ class GitHubAPIClient:
             "state": state,
             "per_page": per_page,
             "sort": "updated",
-            "direction": "desc"
+            "direction": "desc",
         }
 
         if since:
@@ -289,8 +320,7 @@ class GitHubAPIClient:
 
             try:
                 response = await self.session.get(
-                    f"{self.base_url}/repos/{owner}/{repo}/issues",
-                    params=params
+                    f"{self.base_url}/repos/{owner}/{repo}/issues", params=params
                 )
                 response.raise_for_status()
 
@@ -300,8 +330,7 @@ class GitHubAPIClient:
 
                 # Filter out pull requests (GitHub API includes PRs in issues endpoint)
                 actual_issues = [
-                    issue for issue in page_issues
-                    if "pull_request" not in issue
+                    issue for issue in page_issues if "pull_request" not in issue
                 ]
 
                 # Convert to our model
@@ -319,22 +348,28 @@ class GitHubAPIClient:
                             repository={
                                 "owner": owner,
                                 "name": repo,
-                                "full_name": f"{owner}/{repo}"
+                                "full_name": f"{owner}/{repo}",
                             },
                             created_at=issue_data["created_at"],
                             updated_at=issue_data["updated_at"],
                             closed_at=issue_data.get("closed_at"),
-                            html_url=issue_data["html_url"]
+                            html_url=issue_data["html_url"],
                         )
                         issues.append(issue)
                     except Exception as e:
-                        logger.error("Error parsing issue", issue_id=issue_data.get("id"), error=str(e))
+                        logger.error(
+                            "Error parsing issue",
+                            issue_id=issue_data.get("id"),
+                            error=str(e),
+                        )
                         continue
 
                 # Check rate limiting
                 remaining = int(response.headers.get("X-RateLimit-Remaining", 0))
                 if remaining < 10:
-                    logger.warning("Approaching GitHub API rate limit", remaining=remaining)
+                    logger.warning(
+                        "Approaching GitHub API rate limit", remaining=remaining
+                    )
                     break
 
                 page += 1
@@ -346,21 +381,30 @@ class GitHubAPIClient:
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 403:
                     # Rate limited or forbidden
-                    logger.error("GitHub API forbidden", status=403, response=e.response.text)
+                    logger.error(
+                        "GitHub API forbidden", status=403, response=e.response.text
+                    )
                     break
                 elif e.response.status_code == 404:
                     # Repository not found or no access
-                    logger.error("Repository not found or no access", owner=owner, repo=repo)
+                    logger.error(
+                        "Repository not found or no access", owner=owner, repo=repo
+                    )
                     break
                 else:
-                    logger.error("GitHub API error", status=e.response.status_code, error=str(e))
+                    logger.error(
+                        "GitHub API error", status=e.response.status_code, error=str(e)
+                    )
                     break
             except Exception as e:
                 logger.error("Unexpected error fetching issues", error=str(e))
                 break
 
-        logger.info("Fetched issues from GitHub", owner=owner, repo=repo, count=len(issues))
+        logger.info(
+            "Fetched issues from GitHub", owner=owner, repo=repo, count=len(issues)
+        )
         return issues
+
 
 def parse_github_url(github_url: str) -> tuple[str, str]:
     """Parse GitHub URL and return owner, repo"""
@@ -370,8 +414,9 @@ def parse_github_url(github_url: str) -> tuple[str, str]:
         raise ValueError("Invalid GitHub URL format")
 
     owner, repo = match.groups()
-    repo = repo.rstrip('.git')  # Remove .git suffix if present
+    repo = repo.rstrip(".git")  # Remove .git suffix if present
     return owner, repo
+
 
 async def validate_public_repository(github_url: str) -> Dict[str, Any]:
     """Validate and get metadata for a public GitHub repository URL"""
@@ -382,7 +427,7 @@ async def validate_public_repository(github_url: str) -> Dict[str, Any]:
         response = await client.get(
             f"https://api.github.com/repos/{owner}/{repo}",
             headers={"Accept": "application/vnd.github.v3+json"},
-            timeout=30.0
+            timeout=30.0,
         )
 
         if response.status_code == 404:

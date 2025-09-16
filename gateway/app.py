@@ -10,7 +10,14 @@ from datetime import datetime
 import asyncio
 
 import structlog
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, status
+from fastapi import (
+    FastAPI,
+    WebSocket,
+    WebSocketDisconnect,
+    HTTPException,
+    Depends,
+    status,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -116,6 +123,7 @@ class HealthResponse(BaseModel):
     version: str
     connected_clients: int
 
+
 class RepositoryResponse(BaseModel):
     owner: str
     name: str
@@ -125,22 +133,27 @@ class RepositoryResponse(BaseModel):
     issues_synced: int = 0
     sync_status: Optional[str] = None
 
+
 class ConnectRepositoryRequest(BaseModel):
     owner: str
     name: str
     is_public: bool = True
+
 
 class ConnectRepositoryResponse(BaseModel):
     success: bool
     message: str
     repository: Optional[RepositoryResponse] = None
 
+
 class PublicRepositoryRequest(BaseModel):
     github_url: str
+
 
 class DisconnectRepositoryResponse(BaseModel):
     success: bool
     message: str
+
 
 class OrganizationResponse(BaseModel):
     id: int
@@ -153,9 +166,11 @@ class OrganizationResponse(BaseModel):
     public_repos: int
     total_private_repos: Optional[int] = None
 
+
 class OrganizationRepositoriesResponse(BaseModel):
     organization: str
     repositories: List[RepositoryResponse]
+
 
 # Authentication helper functions
 def verify_jwt_token(token: str) -> dict:
@@ -167,23 +182,29 @@ def verify_jwt_token(token: str) -> dict:
         logger.error("JWT verification failed", error=str(e))
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication token"
+            detail="Invalid authentication token",
         )
 
-def get_current_user(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)) -> Optional[dict]:
+
+def get_current_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+) -> Optional[dict]:
     """Get current user from JWT token (optional)"""
     if not credentials:
         return None
     return verify_jwt_token(credentials.credentials)
 
-def get_current_user_required(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+
+def get_current_user_required(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> dict:
     """Get current user from JWT token (required)"""
     if not credentials:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication required"
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required"
         )
     return verify_jwt_token(credentials.credentials)
+
 
 async def get_user_github_token(user_id: int) -> str:
     """Get GitHub access token for user from auth service"""
@@ -191,8 +212,7 @@ async def get_user_github_token(user_id: int) -> str:
         async with httpx.AsyncClient() as client:
             # This endpoint would need to be created in auth service
             response = await client.get(
-                f"{AUTH_SERVICE_URL}/auth/user/{user_id}/github-token",
-                timeout=10.0
+                f"{AUTH_SERVICE_URL}/auth/user/{user_id}/github-token", timeout=10.0
             )
             response.raise_for_status()
             data = response.json()
@@ -559,9 +579,12 @@ async def get_stats():
         logger.error("Error fetching stats", error=str(e))
         raise HTTPException(status_code=500, detail="Failed to fetch statistics")
 
+
 # Authentication and repository management endpoints (proxy to auth service)
 @app.get("/auth/user/repositories")
-async def get_user_repositories(credentials: HTTPAuthorizationCredentials = Depends(security)):
+async def get_user_repositories(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
     """Get repositories accessible by the current user (proxy to auth service)"""
     if not credentials:
         raise HTTPException(status_code=401, detail="Authentication required")
@@ -570,23 +593,26 @@ async def get_user_repositories(credentials: HTTPAuthorizationCredentials = Depe
         async with httpx.AsyncClient() as client:
             response = await client.get(
                 f"{AUTH_SERVICE_URL}/auth/user/repositories",
-                headers={"Authorization": f"Bearer {credentials.credentials}"}  # Pass JWT token directly
+                headers={
+                    "Authorization": f"Bearer {credentials.credentials}"
+                },  # Pass JWT token directly
             )
             response.raise_for_status()
             return response.json()
 
     except httpx.RequestError as e:
         logger.error("Auth service request failed", error=str(e))
-        raise HTTPException(status_code=503, detail="Authentication service unavailable")
+        raise HTTPException(
+            status_code=503, detail="Authentication service unavailable"
+        )
     except Exception as e:
         logger.error("Error fetching repositories", error=str(e))
         raise HTTPException(status_code=500, detail="Failed to fetch repositories")
 
+
 @app.post("/repos/{owner}/{repo}/sync")
 async def sync_repository_issues(
-    owner: str,
-    repo: str,
-    credentials: HTTPAuthorizationCredentials = Depends(security)
+    owner: str, repo: str, credentials: HTTPAuthorizationCredentials = Depends(security)
 ):
     """Manually sync issues from a GitHub repository (proxy to auth service)"""
     if not credentials:
@@ -596,39 +622,44 @@ async def sync_repository_issues(
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 f"{AUTH_SERVICE_URL}/repos/{owner}/{repo}/sync",
-                headers={"Authorization": f"Bearer {credentials.credentials}"},  # Pass JWT token directly
-                timeout=300.0  # 5 minute timeout for sync operations
+                headers={
+                    "Authorization": f"Bearer {credentials.credentials}"
+                },  # Pass JWT token directly
+                timeout=300.0,  # 5 minute timeout for sync operations
             )
             response.raise_for_status()
             result = response.json()
 
             # Broadcast sync completion to connected clients
             await manager.broadcast(
-                json.dumps({
-                    "type": "sync_completed",
-                    "data": {
-                        "owner": owner,
-                        "repo": repo,
-                        "result": result,
-                        "timestamp": datetime.now().isoformat(),
+                json.dumps(
+                    {
+                        "type": "sync_completed",
+                        "data": {
+                            "owner": owner,
+                            "repo": repo,
+                            "result": result,
+                            "timestamp": datetime.now().isoformat(),
+                        },
                     }
-                })
+                )
             )
 
             return result
 
     except httpx.RequestError as e:
         logger.error("Auth service request failed", error=str(e))
-        raise HTTPException(status_code=503, detail="Authentication service unavailable")
+        raise HTTPException(
+            status_code=503, detail="Authentication service unavailable"
+        )
     except Exception as e:
         logger.error("Error syncing repository", owner=owner, repo=repo, error=str(e))
         raise HTTPException(status_code=500, detail="Repository sync failed")
 
+
 @app.get("/repos/{owner}/{repo}/sync-status")
 async def get_sync_status(
-    owner: str,
-    repo: str,
-    credentials: HTTPAuthorizationCredentials = Depends(security)
+    owner: str, repo: str, credentials: HTTPAuthorizationCredentials = Depends(security)
 ):
     """Get sync status for a repository (proxy to auth service)"""
     if not credentials:
@@ -638,14 +669,18 @@ async def get_sync_status(
         async with httpx.AsyncClient() as client:
             response = await client.get(
                 f"{AUTH_SERVICE_URL}/repos/{owner}/{repo}/sync-status",
-                headers={"Authorization": f"Bearer {credentials.credentials}"}  # Pass JWT token directly
+                headers={
+                    "Authorization": f"Bearer {credentials.credentials}"
+                },  # Pass JWT token directly
             )
             response.raise_for_status()
             return response.json()
 
     except httpx.RequestError as e:
         logger.error("Auth service request failed", error=str(e))
-        raise HTTPException(status_code=503, detail="Authentication service unavailable")
+        raise HTTPException(
+            status_code=503, detail="Authentication service unavailable"
+        )
     except Exception as e:
         logger.error("Error fetching sync status", owner=owner, repo=repo, error=str(e))
         raise HTTPException(status_code=500, detail="Failed to fetch sync status")
@@ -653,10 +688,11 @@ async def get_sync_status(
 
 # Repository Management Endpoints (moved from auth service)
 
+
 @app.post("/api/repos/connect", response_model=ConnectRepositoryResponse)
 async def connect_repository(
     request: ConnectRepositoryRequest,
-    current_user: dict = Depends(get_current_user_required)
+    current_user: dict = Depends(get_current_user_required),
 ):
     """Connect a repository to the user's account"""
     try:
@@ -668,69 +704,94 @@ async def connect_repository(
         # Verify repository access and get metadata
         async with GitHubAPIClient(github_token) as github_client:
             try:
-                repo_info = await github_client.get_repository_info(request.owner, request.name)
+                repo_info = await github_client.get_repository_info(
+                    request.owner, request.name
+                )
             except Exception as e:
                 if "404" in str(e):
-                    raise HTTPException(status_code=404, detail="Repository not found or no access")
+                    raise HTTPException(
+                        status_code=404, detail="Repository not found or no access"
+                    )
                 elif "403" in str(e):
-                    raise HTTPException(status_code=403, detail="Insufficient permissions")
+                    raise HTTPException(
+                        status_code=403, detail="Insufficient permissions"
+                    )
                 else:
-                    raise HTTPException(status_code=500, detail="Failed to verify repository access")
+                    raise HTTPException(
+                        status_code=500, detail="Failed to verify repository access"
+                    )
 
         # Check for deduplication - repository already exists
         conn = psycopg2.connect(DATABASE_URL)
         with conn.cursor() as cur:
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT id FROM dispatchai.repositories
                 WHERE github_repo_id = %s OR (owner = %s AND name = %s)
-            """, (repo_info["id"], request.owner, request.name))
+            """,
+                (repo_info["id"], request.owner, request.name),
+            )
             existing_repo = cur.fetchone()
 
             if existing_repo:
                 repo_id = existing_repo[0]
                 # Check if user is already connected
-                cur.execute("""
+                cur.execute(
+                    """
                     SELECT 1 FROM dispatchai.user_repositories
                     WHERE user_id = %s AND repo_id = %s
-                """, (user_id, repo_id))
+                """,
+                    (user_id, repo_id),
+                )
                 if cur.fetchone():
                     conn.close()
                     return ConnectRepositoryResponse(
                         success=False,
-                        message="Repository already connected to your account"
+                        message="Repository already connected to your account",
                     )
             else:
                 # Create new repository record
-                cur.execute("""
+                cur.execute(
+                    """
                     INSERT INTO dispatchai.repositories (
                         github_repo_id, owner, name, private, is_public_dashboard
                     ) VALUES (%s, %s, %s, %s, %s)
                     RETURNING id
-                """, (
-                    repo_info["id"],
-                    request.owner,
-                    request.name,
-                    repo_info["private"],
-                    not repo_info["private"] and request.is_public
-                ))
+                """,
+                    (
+                        repo_info["id"],
+                        request.owner,
+                        request.name,
+                        repo_info["private"],
+                        not repo_info["private"] and request.is_public,
+                    ),
+                )
                 repo_id = cur.fetchone()[0]
 
             # Connect user to repository
-            cur.execute("""
+            cur.execute(
+                """
                 INSERT INTO dispatchai.user_repositories (user_id, repo_id, role, can_write)
                 VALUES (%s, %s, %s, %s)
                 ON CONFLICT (user_id, repo_id) DO NOTHING
-            """, (
-                user_id,
-                repo_id,
-                "owner" if repo_info["permissions"]["admin"] else "viewer",
-                repo_info["permissions"]["push"]
-            ))
+            """,
+                (
+                    user_id,
+                    repo_id,
+                    "owner" if repo_info["permissions"]["admin"] else "viewer",
+                    repo_info["permissions"]["push"],
+                ),
+            )
 
         conn.commit()
         conn.close()
 
-        logger.info("Repository connected", user_id=user_id, owner=request.owner, repo=request.name)
+        logger.info(
+            "Repository connected",
+            user_id=user_id,
+            owner=request.owner,
+            repo=request.name,
+        )
 
         return ConnectRepositoryResponse(
             success=True,
@@ -742,9 +803,9 @@ async def connect_repository(
                 permissions={
                     "admin": repo_info["permissions"]["admin"],
                     "push": repo_info["permissions"]["push"],
-                    "pull": repo_info["permissions"]["pull"]
-                }
-            )
+                    "pull": repo_info["permissions"]["pull"],
+                },
+            ),
         )
 
     except HTTPException:
@@ -752,6 +813,7 @@ async def connect_repository(
     except Exception as e:
         logger.error("Error connecting repository", user_id=user_id, error=str(e))
         raise HTTPException(status_code=500, detail="Failed to connect repository")
+
 
 @app.post("/api/repos/validate-public", response_model=ConnectRepositoryResponse)
 async def validate_public_repository_endpoint(request: PublicRepositoryRequest):
@@ -767,21 +829,22 @@ async def validate_public_repository_endpoint(request: PublicRepositoryRequest):
                 owner=owner,
                 name=repo,
                 full_name=f"{owner}/{repo}",
-                permissions={"admin": False, "push": False, "pull": True}
-            )
+                permissions={"admin": False, "push": False, "pull": True},
+            ),
         )
 
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error("Error validating public repository", url=request.github_url, error=str(e))
+        logger.error(
+            "Error validating public repository", url=request.github_url, error=str(e)
+        )
         raise HTTPException(status_code=500, detail="Failed to validate repository")
+
 
 @app.delete("/api/repos/{owner}/{repo}", response_model=DisconnectRepositoryResponse)
 async def disconnect_repository(
-    owner: str,
-    repo: str,
-    current_user: dict = Depends(get_current_user_required)
+    owner: str, repo: str, current_user: dict = Depends(get_current_user_required)
 ):
     """Disconnect a repository from the user's account"""
     try:
@@ -790,10 +853,13 @@ async def disconnect_repository(
         conn = psycopg2.connect(DATABASE_URL)
         with conn.cursor() as cur:
             # Find repository
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT r.id FROM dispatchai.repositories r
                 WHERE r.owner = %s AND r.name = %s
-            """, (owner, repo))
+            """,
+                (owner, repo),
+            )
             repo_record = cur.fetchone()
 
             if not repo_record:
@@ -803,29 +869,37 @@ async def disconnect_repository(
             repo_id = repo_record[0]
 
             # Check if user is connected
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT 1 FROM dispatchai.user_repositories
                 WHERE user_id = %s AND repo_id = %s
-            """, (user_id, repo_id))
+            """,
+                (user_id, repo_id),
+            )
 
             if not cur.fetchone():
                 conn.close()
                 return DisconnectRepositoryResponse(
-                    success=False,
-                    message="Repository not connected to your account"
+                    success=False, message="Repository not connected to your account"
                 )
 
             # Remove user-repository connection
-            cur.execute("""
+            cur.execute(
+                """
                 DELETE FROM dispatchai.user_repositories
                 WHERE user_id = %s AND repo_id = %s
-            """, (user_id, repo_id))
+            """,
+                (user_id, repo_id),
+            )
 
             # Also remove sync records for this user
-            cur.execute("""
+            cur.execute(
+                """
                 DELETE FROM dispatchai.repository_syncs
                 WHERE user_id = %s AND repository_owner = %s AND repository_name = %s
-            """, (user_id, owner, repo))
+            """,
+                (user_id, owner, repo),
+            )
 
         conn.commit()
         conn.close()
@@ -833,8 +907,7 @@ async def disconnect_repository(
         logger.info("Repository disconnected", user_id=user_id, owner=owner, repo=repo)
 
         return DisconnectRepositoryResponse(
-            success=True,
-            message="Repository disconnected successfully"
+            success=True, message="Repository disconnected successfully"
         )
 
     except HTTPException:
@@ -843,10 +916,14 @@ async def disconnect_repository(
         logger.error("Error disconnecting repository", user_id=user_id, error=str(e))
         raise HTTPException(status_code=500, detail="Failed to disconnect repository")
 
+
 # Organization and Repository Management Endpoints
 
+
 @app.get("/api/organizations", response_model=List[OrganizationResponse])
-async def get_user_organizations(current_user: dict = Depends(get_current_user_required)):
+async def get_user_organizations(
+    current_user: dict = Depends(get_current_user_required),
+):
     """Get organizations and user account that the authenticated user has repository access to"""
     try:
         user_id = current_user["sub"]
@@ -863,17 +940,19 @@ async def get_user_organizations(current_user: dict = Depends(get_current_user_r
         # Convert to response models
         result = []
         for org in organizations:
-            result.append(OrganizationResponse(
-                id=org.id,
-                login=org.login,
-                name=org.name,
-                description=org.description,
-                avatar_url=org.avatar_url,
-                html_url=org.html_url,
-                type=org.type,
-                public_repos=org.public_repos,
-                total_private_repos=org.total_private_repos
-            ))
+            result.append(
+                OrganizationResponse(
+                    id=org.id,
+                    login=org.login,
+                    name=org.name,
+                    description=org.description,
+                    avatar_url=org.avatar_url,
+                    html_url=org.html_url,
+                    type=org.type,
+                    public_repos=org.public_repos,
+                    total_private_repos=org.total_private_repos,
+                )
+            )
 
         logger.info("Fetched user organizations", user_id=user_id, count=len(result))
         return result
@@ -881,13 +960,20 @@ async def get_user_organizations(current_user: dict = Depends(get_current_user_r
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Error fetching organizations", user_id=current_user.get("sub"), error=str(e))
+        logger.error(
+            "Error fetching organizations",
+            user_id=current_user.get("sub"),
+            error=str(e),
+        )
         raise HTTPException(status_code=500, detail="Failed to fetch organizations")
 
-@app.get("/api/organizations/{org_login}/repositories", response_model=OrganizationRepositoriesResponse)
+
+@app.get(
+    "/api/organizations/{org_login}/repositories",
+    response_model=OrganizationRepositoriesResponse,
+)
 async def get_organization_repositories(
-    org_login: str,
-    current_user: dict = Depends(get_current_user_required)
+    org_login: str, current_user: dict = Depends(get_current_user_required)
 ):
     """Get repositories for a specific organization or user"""
     try:
@@ -905,16 +991,22 @@ async def get_organization_repositories(
         # Get sync status from database for user's connected repositories
         conn = psycopg2.connect(DATABASE_URL)
         with conn.cursor() as cur:
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT repository_owner, repository_name, last_sync_at, issues_synced, sync_status
                 FROM dispatchai.repository_syncs
                 WHERE user_id = %s
-            """, (user_id,))
-            sync_data = {f"{row[0]}/{row[1]}": {
-                "last_sync_at": row[2].isoformat() if row[2] else None,
-                "issues_synced": row[3],
-                "sync_status": row[4]
-            } for row in cur.fetchall()}
+            """,
+                (user_id,),
+            )
+            sync_data = {
+                f"{row[0]}/{row[1]}": {
+                    "last_sync_at": row[2].isoformat() if row[2] else None,
+                    "issues_synced": row[3],
+                    "sync_status": row[4],
+                }
+                for row in cur.fetchall()
+            }
 
         conn.close()
 
@@ -924,34 +1016,45 @@ async def get_organization_repositories(
             full_name = repo["full_name"]
             sync_info = sync_data.get(full_name, {})
 
-            repository_responses.append(RepositoryResponse(
-                owner=repo["owner"]["login"],
-                name=repo["name"],
-                full_name=full_name,
-                permissions={
-                    "admin": repo["permissions"]["admin"],
-                    "push": repo["permissions"]["push"],
-                    "pull": repo["permissions"]["pull"]
-                },
-                last_sync_at=sync_info.get("last_sync_at"),
-                issues_synced=sync_info.get("issues_synced", 0),
-                sync_status=sync_info.get("sync_status")
-            ))
+            repository_responses.append(
+                RepositoryResponse(
+                    owner=repo["owner"]["login"],
+                    name=repo["name"],
+                    full_name=full_name,
+                    permissions={
+                        "admin": repo["permissions"]["admin"],
+                        "push": repo["permissions"]["push"],
+                        "pull": repo["permissions"]["pull"],
+                    },
+                    last_sync_at=sync_info.get("last_sync_at"),
+                    issues_synced=sync_info.get("issues_synced", 0),
+                    sync_status=sync_info.get("sync_status"),
+                )
+            )
 
-        logger.info("Fetched organization repositories",
-                   user_id=user_id, org=org_login, count=len(repository_responses))
+        logger.info(
+            "Fetched organization repositories",
+            user_id=user_id,
+            org=org_login,
+            count=len(repository_responses),
+        )
 
         return OrganizationRepositoriesResponse(
-            organization=org_login,
-            repositories=repository_responses
+            organization=org_login, repositories=repository_responses
         )
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Error fetching organization repositories",
-                    user_id=current_user.get("sub"), org=org_login, error=str(e))
-        raise HTTPException(status_code=500, detail="Failed to fetch organization repositories")
+        logger.error(
+            "Error fetching organization repositories",
+            user_id=current_user.get("sub"),
+            org=org_login,
+            error=str(e),
+        )
+        raise HTTPException(
+            status_code=500, detail="Failed to fetch organization repositories"
+        )
 
 
 @app.post("/api/issues/{issue_id}/correct")
