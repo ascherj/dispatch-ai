@@ -1,0 +1,31 @@
+# DispatchAI Auth Service Dependencies (Refactored with Modern OAuth)
+# FastAPI and async web framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
+# Modern OAuth/OIDC library (replaces python-jose)
+authlib>=1.3.0
+
+# JWT handling
+PyJWT>=2.8.0
+
+# HTTP client for GitHub API
+httpx>=0.25.0
+
+# Database
+psycopg2-binary>=2.9.7             # PostgreSQL adapter
+
+# Environment and configuration
+python-dotenv>=1.0.0
+
+# Structured logging
+structlog>=23.2.0
+
+# Data validation
+pydantic>=2.5.0
+
+# Date/time handling
+python-dateutil>=2.8.2
+
+# Session management
+itsdangerous>=2.1.2

@@ -114,6 +114,52 @@ CREATE INDEX IF NOT EXISTS idx_processing_logs_issue_id ON processing_logs(issue
 CREATE INDEX IF NOT EXISTS idx_processing_logs_stage_status ON processing_logs(stage, status);
 CREATE INDEX IF NOT EXISTS idx_processing_logs_created_at ON processing_logs(created_at);
 
+-- Users table - stores authenticated GitHub users
+CREATE TABLE IF NOT EXISTS users (
+    id BIGSERIAL PRIMARY KEY,
+    github_id BIGINT UNIQUE NOT NULL,
+    username VARCHAR(255) NOT NULL,
+    access_token TEXT NOT NULL, -- Encrypted GitHub access token
+    refresh_token TEXT, -- Encrypted GitHub refresh token (if available)
+    token_expires_at TIMESTAMP WITH TIME ZONE,
+    scopes TEXT[] DEFAULT '{}',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Repository syncs table - tracks manual sync operations
+CREATE TABLE IF NOT EXISTS repository_syncs (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
+    repository_owner VARCHAR(255) NOT NULL,
+    repository_name VARCHAR(255) NOT NULL,
+    last_sync_at TIMESTAMP WITH TIME ZONE,
+    last_issue_updated_at TIMESTAMP WITH TIME ZONE,
+    sync_status VARCHAR(20) DEFAULT 'pending', -- 'pending', 'syncing', 'completed', 'failed'
+    issues_synced INTEGER DEFAULT 0,
+    error_message TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, repository_owner, repository_name)
+);
+
+-- Add sync source tracking to issues table
+ALTER TABLE issues ADD COLUMN IF NOT EXISTS sync_source VARCHAR(20) DEFAULT 'webhook'; -- 'webhook' or 'manual_pull'
+ALTER TABLE issues ADD COLUMN IF NOT EXISTS pulled_by_user_id BIGINT REFERENCES users(id);
+
+-- Create indexes for new tables
+CREATE INDEX IF NOT EXISTS idx_users_github_id ON users(github_id);
+CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+CREATE INDEX IF NOT EXISTS idx_users_created_at ON users(created_at);
+
+CREATE INDEX IF NOT EXISTS idx_repository_syncs_user_id ON repository_syncs(user_id);
+CREATE INDEX IF NOT EXISTS idx_repository_syncs_repo ON repository_syncs(repository_owner, repository_name);
+CREATE INDEX IF NOT EXISTS idx_repository_syncs_status ON repository_syncs(sync_status);
+CREATE INDEX IF NOT EXISTS idx_repository_syncs_last_sync ON repository_syncs(last_sync_at);
+
+CREATE INDEX IF NOT EXISTS idx_issues_sync_source ON issues(sync_source);
+CREATE INDEX IF NOT EXISTS idx_issues_pulled_by_user ON issues(pulled_by_user_id);
+
 -- Create a function to update the updated_at timestamp
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
@@ -123,9 +169,17 @@ BEGIN
 END;
 $$ language 'plpgsql';
 
--- Create trigger to automatically update updated_at
+-- Create triggers to automatically update updated_at
 CREATE TRIGGER update_enriched_issues_updated_at
     BEFORE UPDATE ON enriched_issues
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_users_updated_at
+    BEFORE UPDATE ON users
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_repository_syncs_updated_at
+    BEFORE UPDATE ON repository_syncs
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Insert some sample data for testing (optional)
@@ -166,6 +220,7 @@ GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA dispatchai TO postgres;
 DO $$
 BEGIN
     RAISE NOTICE 'DispatchAI database initialization completed successfully!';
-    RAISE NOTICE 'Created tables: issues, enriched_issues, manual_corrections, similar_issues, processing_logs';
+    RAISE NOTICE 'Created tables: issues, enriched_issues, manual_corrections, similar_issues, processing_logs, users, repository_syncs';
     RAISE NOTICE 'Enabled pgvector extension for similarity search';
+    RAISE NOTICE 'Added GitHub OAuth authentication support';
 END $$;

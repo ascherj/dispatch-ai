@@ -10,14 +10,16 @@ from datetime import datetime
 import asyncio
 
 import structlog
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import httpx
 from kafka import KafkaConsumer
+from jose import jwt, JWTError
 
 # Configure structured logging
 structlog.configure(
@@ -46,6 +48,8 @@ DATABASE_URL = os.getenv(
 )
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "redpanda:9092")
 DASHBOARD_URL = os.getenv("DASHBOARD_URL", "http://localhost:3000")
+AUTH_SERVICE_URL = os.getenv("AUTH_SERVICE_URL", "http://auth:8003")
+JWT_SECRET = os.getenv("JWT_SECRET", "dev-jwt-secret-change-in-production")
 
 # CORS allowed origins (configurable for production)
 CORS_ORIGINS = os.getenv(
@@ -68,6 +72,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Security scheme for JWT authentication
+security = HTTPBearer(auto_error=False)
 
 
 # Pydantic models
@@ -107,6 +114,34 @@ class HealthResponse(BaseModel):
     service: str
     version: str
     connected_clients: int
+
+# Authentication helper functions
+def verify_jwt_token(token: str) -> dict:
+    """Verify and decode a JWT token"""
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        return payload
+    except JWTError as e:
+        logger.error("JWT verification failed", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication token"
+        )
+
+def get_current_user(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)) -> Optional[dict]:
+    """Get current user from JWT token (optional)"""
+    if not credentials:
+        return None
+    return verify_jwt_token(credentials.credentials)
+
+def get_current_user_required(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+    """Get current user from JWT token (required)"""
+    if not credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required"
+        )
+    return verify_jwt_token(credentials.credentials)
 
 
 # WebSocket connection manager
@@ -465,6 +500,97 @@ async def get_stats():
     except Exception as e:
         logger.error("Error fetching stats", error=str(e))
         raise HTTPException(status_code=500, detail="Failed to fetch statistics")
+
+# Authentication and repository management endpoints (proxy to auth service)
+@app.get("/auth/user/repositories")
+async def get_user_repositories(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """Get repositories accessible by the current user (proxy to auth service)"""
+    if not credentials:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{AUTH_SERVICE_URL}/auth/user/repositories",
+                headers={"Authorization": f"Bearer {credentials.credentials}"}  # Pass JWT token directly
+            )
+            response.raise_for_status()
+            return response.json()
+
+    except httpx.RequestError as e:
+        logger.error("Auth service request failed", error=str(e))
+        raise HTTPException(status_code=503, detail="Authentication service unavailable")
+    except Exception as e:
+        logger.error("Error fetching repositories", error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to fetch repositories")
+
+@app.post("/repos/{owner}/{repo}/sync")
+async def sync_repository_issues(
+    owner: str,
+    repo: str,
+    credentials: HTTPAuthorizationCredentials = Depends(security)
+):
+    """Manually sync issues from a GitHub repository (proxy to auth service)"""
+    if not credentials:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{AUTH_SERVICE_URL}/repos/{owner}/{repo}/sync",
+                headers={"Authorization": f"Bearer {credentials.credentials}"},  # Pass JWT token directly
+                timeout=300.0  # 5 minute timeout for sync operations
+            )
+            response.raise_for_status()
+            result = response.json()
+
+            # Broadcast sync completion to connected clients
+            await manager.broadcast(
+                json.dumps({
+                    "type": "sync_completed",
+                    "data": {
+                        "owner": owner,
+                        "repo": repo,
+                        "result": result,
+                        "timestamp": datetime.now().isoformat(),
+                    }
+                })
+            )
+
+            return result
+
+    except httpx.RequestError as e:
+        logger.error("Auth service request failed", error=str(e))
+        raise HTTPException(status_code=503, detail="Authentication service unavailable")
+    except Exception as e:
+        logger.error("Error syncing repository", owner=owner, repo=repo, error=str(e))
+        raise HTTPException(status_code=500, detail="Repository sync failed")
+
+@app.get("/repos/{owner}/{repo}/sync-status")
+async def get_sync_status(
+    owner: str,
+    repo: str,
+    credentials: HTTPAuthorizationCredentials = Depends(security)
+):
+    """Get sync status for a repository (proxy to auth service)"""
+    if not credentials:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{AUTH_SERVICE_URL}/repos/{owner}/{repo}/sync-status",
+                headers={"Authorization": f"Bearer {credentials.credentials}"}  # Pass JWT token directly
+            )
+            response.raise_for_status()
+            return response.json()
+
+    except httpx.RequestError as e:
+        logger.error("Auth service request failed", error=str(e))
+        raise HTTPException(status_code=503, detail="Authentication service unavailable")
+    except Exception as e:
+        logger.error("Error fetching sync status", owner=owner, repo=repo, error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to fetch sync status")
 
 
 @app.post("/api/issues/{issue_id}/correct")

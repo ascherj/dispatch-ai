@@ -11,6 +11,7 @@ python-dotenv
 jinja2
 psycopg2-binary
 structlog
+python-jose[cryptography]  # JWT token handling
 
 # Messaging
 kafka-python

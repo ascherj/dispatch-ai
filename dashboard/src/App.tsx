@@ -1,5 +1,9 @@
 import { useState, useEffect } from 'react'
 import './App.css'
+import { AuthProvider, useAuth } from './contexts/AuthContext'
+import LoginButton from './components/LoginButton'
+import RepositoryManager from './components/RepositoryManager'
+import AuthCallback from './components/AuthCallback'
 
 interface Issue {
   id: number
@@ -33,7 +37,8 @@ interface Stats {
   priorities: { name: string; count: number }[]
 }
 
-function App() {
+function DashboardContent() {
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
   const [issues, setIssues] = useState<Issue[]>([])
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('disconnected')
   const [stats, setStats] = useState<Stats | null>(null)
@@ -43,6 +48,12 @@ function App() {
     const saved = localStorage.getItem('theme')
     return saved ? saved === 'dark' : true // Default to dark mode
   })
+  const [activeTab, setActiveTab] = useState<'issues' | 'repositories'>('issues')
+
+  // Handle OAuth callback
+  if (window.location.pathname === '/auth/callback') {
+    return <AuthCallback />;
+  }
 
   useEffect(() => {
     let ws: WebSocket | null = null
@@ -274,6 +285,17 @@ function App() {
     }
   }
 
+  if (authLoading) {
+    return (
+      <div className="App">
+        <div className="loading-container">
+          <div className="loading-spinner"></div>
+          <p>Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="App">
       <header className="header">
@@ -283,13 +305,30 @@ function App() {
           <span className="dashboard-text">Dashboard</span>
         </h1>
         <div className="header-controls">
-          <button 
+          {isAuthenticated && (
+            <div className="tabs">
+              <button
+                onClick={() => setActiveTab('issues')}
+                className={`tab ${activeTab === 'issues' ? 'active' : ''}`}
+              >
+                Issues
+              </button>
+              <button
+                onClick={() => setActiveTab('repositories')}
+                className={`tab ${activeTab === 'repositories' ? 'active' : ''}`}
+              >
+                Repositories
+              </button>
+            </div>
+          )}
+          <button
             onClick={toggleTheme}
             className="theme-toggle"
             aria-label={`Switch to ${isDarkMode ? 'light' : 'dark'} mode`}
           >
             {isDarkMode ? '☀️' : '🌙'}
           </button>
+          <LoginButton />
           <div className="connection-status">
             <span className={`status-indicator ${connectionStatus}`}></span>
             <span>WebSocket: {connectionStatus}</span>
@@ -381,10 +420,13 @@ function App() {
         </div>
       )}
 
-      <div className="issues-container">
-        <h2>Recent Issues</h2>
-        <div className="issues-list">
-          {issues.map(issue => (
+      {activeTab === 'repositories' ? (
+        <RepositoryManager />
+      ) : (
+        <div className="issues-container">
+          <h2>Recent Issues</h2>
+          <div className="issues-list">
+            {issues.map(issue => (
             <div key={issue.id} className="issue-card">
               <div className="issue-header">
                 <span className="issue-number">#{issue.number}</span>
@@ -505,10 +547,19 @@ function App() {
               )}
             </div>
           ))}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   )
+}
+
+function App() {
+  return (
+    <AuthProvider>
+      <DashboardContent />
+    </AuthProvider>
+  );
 }
 
 export default App

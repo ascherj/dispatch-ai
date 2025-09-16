@@ -115,6 +115,32 @@ services:
       - dispatchai-network
     restart: unless-stopped
 
+  # Auth Service - GitHub OAuth authentication
+  auth:
+    build:
+      context: ../auth
+      dockerfile: Dockerfile.dev
+    container_name: dispatchai-auth
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-dispatchai}
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
+      - GITHUB_REDIRECT_URI=${GITHUB_REDIRECT_URI:-http://localhost:3000/auth/callback}
+      - JWT_SECRET=${JWT_SECRET:-dev-jwt-secret-change-in-production}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://localhost:8002,http://127.0.0.1:3000}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    ports:
+      - "8003:8003"
+    volumes:
+      - ../auth:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - dispatchai-network
+    restart: unless-stopped
+
   # Gateway Service - WebSocket/REST API
   gateway:
     build:
@@ -124,6 +150,7 @@ services:
     environment:
       - KAFKA_BOOTSTRAP_SERVERS=redpanda:9092
       - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-dispatchai}
+      - AUTH_SERVICE_URL=http://auth:8003
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     ports:
       - "8002:8002"
@@ -134,6 +161,8 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      auth:
+        condition: service_started
     networks:
       - dispatchai-network
     restart: unless-stopped
@@ -147,6 +176,7 @@ services:
     environment:
       - VITE_API_URL=http://localhost:8002
       - VITE_WS_URL=ws://localhost:8002/ws
+      - VITE_AUTH_URL=http://localhost:8003
       - CHOKIDAR_USEPOLLING=true
     ports:
       - "3000:3000"
@@ -155,6 +185,7 @@ services:
       - dashboard_node_modules:/app/node_modules
     depends_on:
       - gateway
+      - auth
     networks:
       - dispatchai-network
     restart: unless-stopped
