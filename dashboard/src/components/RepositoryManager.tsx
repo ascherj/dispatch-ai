@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 
 interface Repository {
@@ -39,6 +39,17 @@ interface SyncResult {
   error_message?: string;
 }
 
+interface ConnectResult {
+  success: boolean;
+  message: string;
+  repository?: Repository;
+}
+
+interface DisconnectResult {
+  success: boolean;
+  message: string;
+}
+
 const RepositoryManager: React.FC = () => {
   const { token, isAuthenticated } = useAuth();
   const [organizations, setOrganizations] = useState<Organization[]>([]);
@@ -48,8 +59,10 @@ const RepositoryManager: React.FC = () => {
   const [loadingRepos, setLoadingRepos] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [syncingRepos, setSyncingRepos] = useState<Set<string>>(new Set());
+  const [connectingRepos, setConnectingRepos] = useState<Set<string>>(new Set());
+  const [disconnectingRepos, setDisconnectingRepos] = useState<Set<string>>(new Set());
 
-  const fetchOrganizations = async () => {
+  const fetchOrganizations = useCallback(async () => {
     if (!isAuthenticated || !token) return;
 
     setIsLoadingOrgs(true);
@@ -75,7 +88,7 @@ const RepositoryManager: React.FC = () => {
     } finally {
       setIsLoadingOrgs(false);
     }
-  };
+  }, [isAuthenticated, token]);
 
   const fetchOrganizationRepositories = async (orgLogin: string) => {
     if (!isAuthenticated || !token) return;
@@ -178,11 +191,101 @@ const RepositoryManager: React.FC = () => {
     }
   };
 
+  const connectRepository = async (repo: Repository, orgLogin: string) => {
+    if (!token) return;
+
+    const repoKey = `${repo.owner}/${repo.name}`;
+    setConnectingRepos(prev => new Set(prev).add(repoKey));
+    setError(null);
+
+    try {
+      const gatewayUrl = import.meta.env.VITE_GATEWAY_URL || 'http://localhost:8002';
+      const response = await fetch(`${gatewayUrl}/api/repos/connect`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          owner: repo.owner,
+          name: repo.name,
+          is_public: !repo.permissions.admin // If user doesn't have admin, assume public dashboard
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Connect failed');
+      }
+
+      const result: ConnectResult = await response.json();
+
+      if (result.success) {
+        // Refresh repositories for this organization to get updated connection status
+        await fetchOrganizationRepositories(orgLogin);
+      } else {
+        setError(`Connect failed: ${result.message}`);
+      }
+
+    } catch (err) {
+      console.error('Error connecting repository:', err);
+      setError(err instanceof Error ? err.message : 'Connect failed');
+    } finally {
+      setConnectingRepos(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(repoKey);
+        return newSet;
+      });
+    }
+  };
+
+  const disconnectRepository = async (repo: Repository, orgLogin: string) => {
+    if (!token) return;
+
+    const repoKey = `${repo.owner}/${repo.name}`;
+    setDisconnectingRepos(prev => new Set(prev).add(repoKey));
+    setError(null);
+
+    try {
+      const gatewayUrl = import.meta.env.VITE_GATEWAY_URL || 'http://localhost:8002';
+      const response = await fetch(`${gatewayUrl}/api/repos/${repo.owner}/${repo.name}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Disconnect failed');
+      }
+
+      const result: DisconnectResult = await response.json();
+
+      if (result.success) {
+        // Refresh repositories for this organization to get updated connection status
+        await fetchOrganizationRepositories(orgLogin);
+      } else {
+        setError(`Disconnect failed: ${result.message}`);
+      }
+
+    } catch (err) {
+      console.error('Error disconnecting repository:', err);
+      setError(err instanceof Error ? err.message : 'Disconnect failed');
+    } finally {
+      setDisconnectingRepos(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(repoKey);
+        return newSet;
+      });
+    }
+  };
+
   useEffect(() => {
     if (isAuthenticated) {
       fetchOrganizations();
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, fetchOrganizations]);
 
   const getSyncStatusColor = (status?: string) => {
     switch (status) {
@@ -211,16 +314,17 @@ const RepositoryManager: React.FC = () => {
 
   return (
     <div className="repository-manager">
-      <div className="repository-manager-header">
-        <h2>Repository Management</h2>
-        <button
-          onClick={fetchOrganizations}
-          disabled={isLoadingOrgs}
-          className="refresh-btn"
-        >
-          {isLoadingOrgs ? 'Loading...' : 'Refresh'}
-        </button>
-      </div>
+      <div className="repository-manager-container">
+        <div className="repository-manager-header">
+          <h2>Repository Management</h2>
+          <button
+            onClick={fetchOrganizations}
+            disabled={isLoadingOrgs}
+            className="refresh-btn"
+          >
+            {isLoadingOrgs ? 'Loading...' : 'Refresh'}
+          </button>
+        </div>
 
       {error && (
         <div className="error-message">
@@ -246,7 +350,11 @@ const RepositoryManager: React.FC = () => {
               const repos = organizationRepos.get(org.login) || [];
 
               return (
-                <div key={org.login} className="organization-card">
+                <div
+                  key={org.login}
+                  className="organization-card"
+                  data-expanded={isExpanded}
+                >
                   <div
                     className="organization-header"
                     onClick={() => toggleOrganization(org.login)}
@@ -294,6 +402,9 @@ const RepositoryManager: React.FC = () => {
                           {repos.map((repo) => {
                             const repoKey = `${repo.owner}/${repo.name}`;
                             const isSyncing = syncingRepos.has(repoKey);
+                            const isConnecting = connectingRepos.has(repoKey);
+                            const isDisconnecting = disconnectingRepos.has(repoKey);
+                            const isConnected = repo.last_sync_at !== null; // If synced before, it's connected
 
                             return (
                               <div key={repo.full_name} className="repository-card">
@@ -308,6 +419,12 @@ const RepositoryManager: React.FC = () => {
 
                                 <div className="repository-stats">
                                   <div className="stat">
+                                    <span className="stat-label">Connection:</span>
+                                    <span className={`stat-value connection-status ${isConnected ? 'connected' : 'not-connected'}`}>
+                                      {isConnected ? 'Connected' : 'Not Connected'}
+                                    </span>
+                                  </div>
+                                  <div className="stat">
                                     <span className="stat-label">Last Sync:</span>
                                     <span className="stat-value">{formatLastSync(repo.last_sync_at)}</span>
                                   </div>
@@ -317,7 +434,7 @@ const RepositoryManager: React.FC = () => {
                                   </div>
                                   {repo.sync_status && (
                                     <div className="stat">
-                                      <span className="stat-label">Status:</span>
+                                      <span className="stat-label">Sync Status:</span>
                                       <span
                                         className="sync-status"
                                         style={{ color: getSyncStatusColor(repo.sync_status) }}
@@ -329,13 +446,32 @@ const RepositoryManager: React.FC = () => {
                                 </div>
 
                                 <div className="repository-actions">
-                                  <button
-                                    onClick={() => syncRepository(repo, org.login)}
-                                    disabled={isSyncing || repo.sync_status === 'syncing'}
-                                    className="sync-btn"
-                                  >
-                                    {isSyncing ? 'Syncing...' : 'Sync Issues'}
-                                  </button>
+                                  {!isConnected ? (
+                                    <button
+                                      onClick={() => connectRepository(repo, org.login)}
+                                      disabled={isConnecting}
+                                      className="connect-btn"
+                                    >
+                                      {isConnecting ? 'Connecting...' : 'Connect Repository'}
+                                    </button>
+                                  ) : (
+                                    <>
+                                      <button
+                                        onClick={() => syncRepository(repo, org.login)}
+                                        disabled={isSyncing || repo.sync_status === 'syncing'}
+                                        className="sync-btn"
+                                      >
+                                        {isSyncing ? 'Syncing...' : 'Sync Issues'}
+                                      </button>
+                                      <button
+                                        onClick={() => disconnectRepository(repo, org.login)}
+                                        disabled={isDisconnecting}
+                                        className="disconnect-btn"
+                                      >
+                                        {isDisconnecting ? 'Disconnecting...' : 'Disconnect'}
+                                      </button>
+                                    </>
+                                  )}
                                 </div>
                               </div>
                             );
@@ -350,6 +486,7 @@ const RepositoryManager: React.FC = () => {
           )}
         </div>
       )}
+      </div>
     </div>
   );
 };
