@@ -158,7 +158,7 @@ class GitHubAPIClient:
                         name=org_data.get("name"),
                         description=org_data.get("description"),
                         avatar_url=org_data["avatar_url"],
-                        html_url=org_data["html_url"],
+                        html_url=org_data.get("html_url", f"https://github.com/{org_data['login']}"),
                         type="Organization",
                         public_repos=org_data.get("public_repos", 0)
                     )

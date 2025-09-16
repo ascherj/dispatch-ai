@@ -15,6 +15,23 @@ interface Repository {
   sync_status?: string;
 }
 
+interface Organization {
+  id: number;
+  login: string;
+  name?: string;
+  description?: string;
+  avatar_url: string;
+  html_url: string;
+  type: string; // "Organization" or "User"
+  public_repos: number;
+  total_private_repos?: number;
+}
+
+interface OrganizationRepositories {
+  organization: string;
+  repositories: Repository[];
+}
+
 interface SyncResult {
   success: boolean;
   issues_fetched: number;
@@ -24,40 +41,101 @@ interface SyncResult {
 
 const RepositoryManager: React.FC = () => {
   const { token, isAuthenticated } = useAuth();
-  const [repositories, setRepositories] = useState<Repository[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const [organizationRepos, setOrganizationRepos] = useState<Map<string, Repository[]>>(new Map());
+  const [expandedOrgs, setExpandedOrgs] = useState<Set<string>>(new Set());
+  const [isLoadingOrgs, setIsLoadingOrgs] = useState(false);
+  const [loadingRepos, setLoadingRepos] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [syncingRepos, setSyncingRepos] = useState<Set<string>>(new Set());
 
-  const fetchRepositories = async () => {
+  const fetchOrganizations = async () => {
     if (!isAuthenticated || !token) return;
 
-    setIsLoading(true);
+    setIsLoadingOrgs(true);
     setError(null);
 
     try {
-      const authUrl = import.meta.env.VITE_AUTH_URL || 'http://localhost:8003';
-      const response = await fetch(`${authUrl}/auth/user/repositories`, {
+      const gatewayUrl = import.meta.env.VITE_GATEWAY_URL || 'http://localhost:8002';
+      const response = await fetch(`${gatewayUrl}/api/organizations`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
       });
 
       if (!response.ok) {
-        throw new Error('Failed to fetch repositories');
+        throw new Error('Failed to fetch organizations');
       }
 
       const data = await response.json();
-      setRepositories(data);
+      setOrganizations(data);
     } catch (err) {
-      console.error('Error fetching repositories:', err);
-      setError('Failed to load repositories');
+      console.error('Error fetching organizations:', err);
+      setError('Failed to load organizations');
     } finally {
-      setIsLoading(false);
+      setIsLoadingOrgs(false);
     }
   };
 
-  const syncRepository = async (repo: Repository) => {
+  const fetchOrganizationRepositories = async (orgLogin: string) => {
+    if (!isAuthenticated || !token) return;
+
+    setLoadingRepos(prev => new Set(prev).add(orgLogin));
+    setError(null);
+
+    try {
+      const gatewayUrl = import.meta.env.VITE_GATEWAY_URL || 'http://localhost:8002';
+      const response = await fetch(`${gatewayUrl}/api/organizations/${orgLogin}/repositories`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch repositories for ${orgLogin}`);
+      }
+
+      const data: OrganizationRepositories = await response.json();
+
+      setOrganizationRepos(prev => {
+        const newMap = new Map(prev);
+        newMap.set(orgLogin, data.repositories);
+        return newMap;
+      });
+
+    } catch (err) {
+      console.error(`Error fetching repositories for ${orgLogin}:`, err);
+      setError(`Failed to load repositories for ${orgLogin}`);
+    } finally {
+      setLoadingRepos(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(orgLogin);
+        return newSet;
+      });
+    }
+  };
+
+  const toggleOrganization = async (orgLogin: string) => {
+    const isExpanded = expandedOrgs.has(orgLogin);
+
+    if (isExpanded) {
+      // Collapse organization
+      setExpandedOrgs(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(orgLogin);
+        return newSet;
+      });
+    } else {
+      // Expand organization - fetch repositories if not already loaded
+      setExpandedOrgs(prev => new Set(prev).add(orgLogin));
+
+      if (!organizationRepos.has(orgLogin)) {
+        await fetchOrganizationRepositories(orgLogin);
+      }
+    }
+  };
+
+  const syncRepository = async (repo: Repository, orgLogin: string) => {
     if (!token) return;
 
     const repoKey = `${repo.owner}/${repo.name}`;
@@ -82,8 +160,8 @@ const RepositoryManager: React.FC = () => {
       const result: SyncResult = await response.json();
 
       if (result.success) {
-        // Refresh repositories to get updated sync status
-        await fetchRepositories();
+        // Refresh repositories for this organization to get updated sync status
+        await fetchOrganizationRepositories(orgLogin);
       } else {
         setError(`Sync failed: ${result.error_message}`);
       }
@@ -102,7 +180,7 @@ const RepositoryManager: React.FC = () => {
 
   useEffect(() => {
     if (isAuthenticated) {
-      fetchRepositories();
+      fetchOrganizations();
     }
   }, [isAuthenticated]);
 
@@ -136,11 +214,11 @@ const RepositoryManager: React.FC = () => {
       <div className="repository-manager-header">
         <h2>Repository Management</h2>
         <button
-          onClick={fetchRepositories}
-          disabled={isLoading}
+          onClick={fetchOrganizations}
+          disabled={isLoadingOrgs}
           className="refresh-btn"
         >
-          {isLoading ? 'Loading...' : 'Refresh'}
+          {isLoadingOrgs ? 'Loading...' : 'Refresh'}
         </button>
       </div>
 
@@ -150,64 +228,122 @@ const RepositoryManager: React.FC = () => {
         </div>
       )}
 
-      {isLoading ? (
+      {isLoadingOrgs ? (
         <div className="loading-container">
           <div className="loading-spinner"></div>
-          <p>Loading repositories...</p>
+          <p>Loading organizations...</p>
         </div>
       ) : (
-        <div className="repositories-list">
-          {repositories.length === 0 ? (
-            <div className="no-repositories">
-              <p>No repositories found. Make sure you have access to repositories on GitHub.</p>
+        <div className="organizations-list">
+          {organizations.length === 0 ? (
+            <div className="no-organizations">
+              <p>No organizations found. Make sure you have access to repositories on GitHub.</p>
             </div>
           ) : (
-            repositories.map((repo) => {
-              const repoKey = `${repo.owner}/${repo.name}`;
-              const isSyncing = syncingRepos.has(repoKey);
+            organizations.map((org) => {
+              const isExpanded = expandedOrgs.has(org.login);
+              const isLoadingRepos = loadingRepos.has(org.login);
+              const repos = organizationRepos.get(org.login) || [];
 
               return (
-                <div key={repo.full_name} className="repository-card">
-                  <div className="repository-header">
-                    <h3 className="repository-name">{repo.full_name}</h3>
-                    <div className="repository-permissions">
-                      {repo.permissions.admin && <span className="permission-badge admin">Admin</span>}
-                      {repo.permissions.push && <span className="permission-badge push">Push</span>}
-                      {repo.permissions.pull && <span className="permission-badge pull">Pull</span>}
-                    </div>
-                  </div>
-
-                  <div className="repository-stats">
-                    <div className="stat">
-                      <span className="stat-label">Last Sync:</span>
-                      <span className="stat-value">{formatLastSync(repo.last_sync_at)}</span>
-                    </div>
-                    <div className="stat">
-                      <span className="stat-label">Issues Synced:</span>
-                      <span className="stat-value">{repo.issues_synced}</span>
-                    </div>
-                    {repo.sync_status && (
-                      <div className="stat">
-                        <span className="stat-label">Status:</span>
-                        <span
-                          className="sync-status"
-                          style={{ color: getSyncStatusColor(repo.sync_status) }}
-                        >
-                          {repo.sync_status}
-                        </span>
+                <div key={org.login} className="organization-card">
+                  <div
+                    className="organization-header"
+                    onClick={() => toggleOrganization(org.login)}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <div className="organization-info">
+                      <img
+                        src={org.avatar_url}
+                        alt={`${org.login} avatar`}
+                        className="organization-avatar"
+                        width="32"
+                        height="32"
+                      />
+                      <div className="organization-details">
+                        <h3 className="organization-name">
+                          {org.name || org.login}
+                          <span className="organization-type">({org.type})</span>
+                        </h3>
+                        <p className="organization-description">
+                          {org.description || `${org.public_repos} public repositories`}
+                        </p>
                       </div>
-                    )}
+                    </div>
+                    <div className="organization-expand">
+                      <span className={`expand-arrow ${isExpanded ? 'expanded' : ''}`}>
+                        ▶
+                      </span>
+                      <span className="repo-count">{org.public_repos} repos</span>
+                    </div>
                   </div>
 
-                  <div className="repository-actions">
-                    <button
-                      onClick={() => syncRepository(repo)}
-                      disabled={isSyncing || repo.sync_status === 'syncing'}
-                      className="sync-btn"
-                    >
-                      {isSyncing ? 'Syncing...' : 'Sync Issues'}
-                    </button>
-                  </div>
+                  {isExpanded && (
+                    <div className="organization-repositories">
+                      {isLoadingRepos ? (
+                        <div className="loading-container">
+                          <div className="loading-spinner"></div>
+                          <p>Loading repositories...</p>
+                        </div>
+                      ) : repos.length === 0 ? (
+                        <div className="no-repositories">
+                          <p>No accessible repositories found in this organization.</p>
+                        </div>
+                      ) : (
+                        <div className="repositories-list">
+                          {repos.map((repo) => {
+                            const repoKey = `${repo.owner}/${repo.name}`;
+                            const isSyncing = syncingRepos.has(repoKey);
+
+                            return (
+                              <div key={repo.full_name} className="repository-card">
+                                <div className="repository-header">
+                                  <h4 className="repository-name">{repo.full_name}</h4>
+                                  <div className="repository-permissions">
+                                    {repo.permissions.admin && <span className="permission-badge admin">Admin</span>}
+                                    {repo.permissions.push && <span className="permission-badge push">Push</span>}
+                                    {repo.permissions.pull && <span className="permission-badge pull">Pull</span>}
+                                  </div>
+                                </div>
+
+                                <div className="repository-stats">
+                                  <div className="stat">
+                                    <span className="stat-label">Last Sync:</span>
+                                    <span className="stat-value">{formatLastSync(repo.last_sync_at)}</span>
+                                  </div>
+                                  <div className="stat">
+                                    <span className="stat-label">Issues Synced:</span>
+                                    <span className="stat-value">{repo.issues_synced}</span>
+                                  </div>
+                                  {repo.sync_status && (
+                                    <div className="stat">
+                                      <span className="stat-label">Status:</span>
+                                      <span
+                                        className="sync-status"
+                                        style={{ color: getSyncStatusColor(repo.sync_status) }}
+                                      >
+                                        {repo.sync_status}
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+
+                                <div className="repository-actions">
+                                  <button
+                                    onClick={() => syncRepository(repo, org.login)}
+                                    disabled={isSyncing || repo.sync_status === 'syncing'}
+                                    className="sync-btn"
+                                  >
+                                    {isSyncing ? 'Syncing...' : 'Sync Issues'}
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })
