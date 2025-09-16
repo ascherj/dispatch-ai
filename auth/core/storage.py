@@ -9,6 +9,8 @@ from datetime import datetime
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import structlog
+from cryptography.fernet import Fernet
+import base64
 
 from .subjects import UserSubject
 from providers.base import UserInfo
@@ -23,6 +25,19 @@ class DatabaseStorage:
         self.database_url = database_url or os.getenv(
             "DATABASE_URL", "postgresql://postgres:postgres@postgres:5432/dispatchai"
         )
+
+        # Initialize encryption key
+        encryption_key = os.getenv("ENCRYPTION_KEY")
+        if not encryption_key:
+            # Generate a key for development (should be set in production)
+            encryption_key = Fernet.generate_key().decode()
+            logger.warning("No ENCRYPTION_KEY found, using generated key for development")
+
+        # Ensure key is properly formatted
+        if isinstance(encryption_key, str):
+            encryption_key = encryption_key.encode()
+
+        self.cipher_suite = Fernet(encryption_key)
 
     def get_connection(self):
         """Get database connection"""
@@ -165,13 +180,27 @@ class DatabaseStorage:
             return None
 
     def _encrypt_token(self, token: str) -> str:
-        """Encrypt token for storage - simplified for now"""
-        # TODO: Implement proper encryption using cryptography library
-        # For now, storing as-is (would add encryption in production)
-        return token
+        """Encrypt token for secure storage"""
+        if not token:
+            return token
+        try:
+            logger.info("Encrypting token", token=token)
+            encrypted_bytes = self.cipher_suite.encrypt(token.encode())
+            encrypted_token = base64.b64encode(encrypted_bytes).decode()
+            logger.info("Encrypted token", encrypted_token=encrypted_token)
+            return encrypted_token
+        except Exception as e:
+            logger.error("Token encryption failed", error=str(e))
+            raise
 
     def _decrypt_token(self, encrypted_token: str) -> str:
-        """Decrypt token from storage - simplified for now"""
-        # TODO: Implement proper decryption using cryptography library
-        # For now, returning as-is (would add decryption in production)
-        return encrypted_token
+        """Decrypt token from storage"""
+        if not encrypted_token:
+            return encrypted_token
+        try:
+            encrypted_bytes = base64.b64decode(encrypted_token.encode())
+            decrypted_bytes = self.cipher_suite.decrypt(encrypted_bytes)
+            return decrypted_bytes.decode()
+        except Exception as e:
+            logger.error("Token decryption failed", error=str(e))
+            raise

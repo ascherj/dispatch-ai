@@ -127,6 +127,28 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Repository registry (global, shared across users)
+CREATE TABLE IF NOT EXISTS repositories (
+    id BIGSERIAL PRIMARY KEY,
+    github_repo_id BIGINT UNIQUE NOT NULL, -- GitHub's immutable repo ID
+    owner VARCHAR(255) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    private BOOLEAN DEFAULT FALSE,
+    is_public_dashboard BOOLEAN DEFAULT FALSE, -- Allow unauthenticated access
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(owner, name)
+);
+
+-- Many-to-many: users can connect to multiple repos
+CREATE TABLE IF NOT EXISTS user_repositories (
+    user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
+    repo_id BIGINT REFERENCES repositories(id) ON DELETE CASCADE,
+    role VARCHAR(50) DEFAULT 'viewer', -- 'owner', 'viewer'
+    can_write BOOLEAN DEFAULT FALSE,
+    added_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, repo_id)
+);
+
 -- Repository syncs table - tracks manual sync operations
 CREATE TABLE IF NOT EXISTS repository_syncs (
     id BIGSERIAL PRIMARY KEY,
@@ -151,6 +173,16 @@ ALTER TABLE issues ADD COLUMN IF NOT EXISTS pulled_by_user_id BIGINT REFERENCES 
 CREATE INDEX IF NOT EXISTS idx_users_github_id ON users(github_id);
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 CREATE INDEX IF NOT EXISTS idx_users_created_at ON users(created_at);
+
+CREATE INDEX IF NOT EXISTS idx_repositories_github_repo_id ON repositories(github_repo_id);
+CREATE INDEX IF NOT EXISTS idx_repositories_owner_name ON repositories(owner, name);
+CREATE INDEX IF NOT EXISTS idx_repositories_public_dashboard ON repositories(is_public_dashboard);
+CREATE INDEX IF NOT EXISTS idx_repositories_created_at ON repositories(created_at);
+
+CREATE INDEX IF NOT EXISTS idx_user_repositories_user_id ON user_repositories(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_repositories_repo_id ON user_repositories(repo_id);
+CREATE INDEX IF NOT EXISTS idx_user_repositories_role ON user_repositories(role);
+CREATE INDEX IF NOT EXISTS idx_user_repositories_added_at ON user_repositories(added_at);
 
 CREATE INDEX IF NOT EXISTS idx_repository_syncs_user_id ON repository_syncs(user_id);
 CREATE INDEX IF NOT EXISTS idx_repository_syncs_repo ON repository_syncs(repository_owner, repository_name);
