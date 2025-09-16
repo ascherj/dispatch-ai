@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import './App.css'
-import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { AuthProvider } from './contexts/AuthContext'
+import { useAuth } from './hooks/useAuth'
 import LoginButton from './components/LoginButton'
 import RepositoryManager from './components/RepositoryManager'
 import AuthCallback from './components/AuthCallback'
@@ -50,11 +51,6 @@ function DashboardContent() {
   })
   const [activeTab, setActiveTab] = useState<'issues' | 'repositories'>('issues')
 
-  // Handle OAuth callback
-  if (window.location.pathname === '/auth/callback') {
-    return <AuthCallback />;
-  }
-
   useEffect(() => {
     let ws: WebSocket | null = null
     let reconnectTimeout: NodeJS.Timeout | null = null
@@ -64,7 +60,7 @@ function DashboardContent() {
 
     const connectWebSocket = () => {
       const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:8002/ws'
-      
+
       setConnectionStatus('connecting')
       ws = new WebSocket(wsUrl)
 
@@ -81,15 +77,15 @@ function DashboardContent() {
 
           if (message.type === 'issue_update') {
             console.log('Processing issue_update message')
-            
-            // Handle both raw issues and enriched issues  
+
+            // Handle both raw issues and enriched issues
             if (message.topic === 'issues.enriched' && message.data.issue) {
               // Enriched issue with classification data
               const issueData = message.data.issue
               const classification = message.data.classification
-              
+
               console.log('Updating issue with classification:', issueData.number, classification)
-              
+
               setIssues(prev => {
                 const existingIndex = prev.findIndex(issue => issue.number === issueData.number)
                 if (existingIndex >= 0) {
@@ -98,7 +94,7 @@ function DashboardContent() {
                   updated[existingIndex] = {
                     ...updated[existingIndex],
                     category: classification?.category,
-                    priority: classification?.priority, 
+                    priority: classification?.priority,
                     confidence: classification?.confidence,
                     tags: classification?.tags || [],
                     status: 'classified'
@@ -150,7 +146,7 @@ function DashboardContent() {
       ws.onclose = (event) => {
         setConnectionStatus('disconnected')
         console.log('WebSocket disconnected:', event.code, event.reason)
-        
+
         // Attempt to reconnect if it wasn't a manual close and we haven't exceeded max attempts
         if (event.code !== 1000 && reconnectAttempts < maxReconnectAttempts) {
           reconnectAttempts++
@@ -202,6 +198,11 @@ function DashboardContent() {
     document.documentElement.setAttribute('data-theme', isDarkMode ? 'dark' : 'light')
   }, [isDarkMode])
 
+  // Handle OAuth callback
+  if (window.location.pathname === '/auth/callback') {
+    return <AuthCallback />;
+  }
+
   const toggleTheme = () => {
     setIsDarkMode(!isDarkMode)
   }
@@ -232,7 +233,7 @@ function DashboardContent() {
 
   const saveCorrection = async () => {
     if (!editingIssue) return
-    
+
     setIsSubmitting(true)
     try {
       const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8002'
@@ -248,11 +249,11 @@ function DashboardContent() {
           tags: editingIssue.tags.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0)
         })
       })
-      
+
       if (response.ok) {
         const updatedIssue = await response.json()
-        setIssues(prev => prev.map(issue => 
-          issue.id === editingIssue.id 
+        setIssues(prev => prev.map(issue =>
+          issue.id === editingIssue.id
             ? { ...issue, ...updatedIssue, status: 'classified' }
             : issue
         ))
@@ -374,8 +375,8 @@ function DashboardContent() {
                           <span className="category-count">{category.count}</span>
                         </div>
                         <div className="bar-container">
-                          <div 
-                            className="bar-fill category-bar" 
+                          <div
+                            className="bar-fill category-bar"
                             style={{ width: `${percentage}%` }}
                           ></div>
                         </div>
@@ -386,7 +387,7 @@ function DashboardContent() {
                 </div>
               </div>
             )}
-            
+
             {stats.priorities.length > 0 && (
               <div className="chart-card">
                 <h3>Priorities</h3>
@@ -401,9 +402,9 @@ function DashboardContent() {
                           <span className="priority-count">{priority.count}</span>
                         </div>
                         <div className="bar-container">
-                          <div 
-                            className="bar-fill priority-bar" 
-                            style={{ 
+                          <div
+                            className="bar-fill priority-bar"
+                            style={{
                               width: `${percentage}%`,
                               backgroundColor: priorityColor
                             }}
@@ -503,7 +504,7 @@ function DashboardContent() {
                   </button>
                 )}
               </div>
-              
+
               {editingIssue?.id === issue.id && (
                 <div className="editing-form">
                   <div className="form-group">

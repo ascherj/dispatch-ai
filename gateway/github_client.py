@@ -5,7 +5,6 @@ Handles authenticated requests to GitHub's REST API
 
 import re
 from typing import Dict, Any, List, Optional
-from datetime import datetime
 
 import structlog
 import httpx

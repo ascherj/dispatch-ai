@@ -20,7 +20,7 @@ from psycopg2.extras import RealDictCursor
 import httpx
 from kafka import KafkaConsumer
 from jose import jwt, JWTError
-from github_client import GitHubAPIClient, SyncResult, GitHubOrganization, validate_public_repository, parse_github_url
+from github_client import GitHubAPIClient, validate_public_repository, parse_github_url
 
 # Configure structured logging
 structlog.configure(
@@ -758,7 +758,7 @@ async def validate_public_repository_endpoint(request: PublicRepositoryRequest):
     """Validate and get metadata for a public GitHub repository URL"""
     try:
         owner, repo = parse_github_url(request.github_url)
-        repo_info = await validate_public_repository(request.github_url)
+        await validate_public_repository(request.github_url)
 
         return ConnectRepositoryResponse(
             success=True,
