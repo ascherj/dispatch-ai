@@ -19,8 +19,6 @@ const LoginButton: React.FC = () => {
 
       const data = await response.json();
 
-      console.log( 'dataasdf', data);
-
       if (data.auth_url) {
         // Redirect to GitHub OAuth
         window.location.href = data.auth_url;

@@ -20,6 +20,7 @@ from psycopg2.extras import RealDictCursor
 import httpx
 from kafka import KafkaConsumer
 from jose import jwt, JWTError
+from github_client import GitHubAPIClient, SyncResult, validate_public_repository, parse_github_url
 
 # Configure structured logging
 structlog.configure(
@@ -115,6 +116,32 @@ class HealthResponse(BaseModel):
     version: str
     connected_clients: int
 
+class RepositoryResponse(BaseModel):
+    owner: str
+    name: str
+    full_name: str
+    permissions: Dict[str, bool]
+    last_sync_at: Optional[str] = None
+    issues_synced: int = 0
+    sync_status: Optional[str] = None
+
+class ConnectRepositoryRequest(BaseModel):
+    owner: str
+    name: str
+    is_public: bool = True
+
+class ConnectRepositoryResponse(BaseModel):
+    success: bool
+    message: str
+    repository: Optional[RepositoryResponse] = None
+
+class PublicRepositoryRequest(BaseModel):
+    github_url: str
+
+class DisconnectRepositoryResponse(BaseModel):
+    success: bool
+    message: str
+
 # Authentication helper functions
 def verify_jwt_token(token: str) -> dict:
     """Verify and decode a JWT token"""
@@ -142,6 +169,22 @@ def get_current_user_required(credentials: HTTPAuthorizationCredentials = Depend
             detail="Authentication required"
         )
     return verify_jwt_token(credentials.credentials)
+
+async def get_user_github_token(user_id: int) -> str:
+    """Get GitHub access token for user from auth service"""
+    try:
+        async with httpx.AsyncClient() as client:
+            # This endpoint would need to be created in auth service
+            response = await client.get(
+                f"{AUTH_SERVICE_URL}/auth/user/{user_id}/github-token",
+                timeout=10.0
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data["access_token"]
+    except Exception as e:
+        logger.error("Failed to get user GitHub token", user_id=user_id, error=str(e))
+        raise HTTPException(status_code=401, detail="GitHub token not available")
 
 
 # WebSocket connection manager
@@ -591,6 +634,199 @@ async def get_sync_status(
     except Exception as e:
         logger.error("Error fetching sync status", owner=owner, repo=repo, error=str(e))
         raise HTTPException(status_code=500, detail="Failed to fetch sync status")
+
+
+# Repository Management Endpoints (moved from auth service)
+
+@app.post("/api/repos/connect", response_model=ConnectRepositoryResponse)
+async def connect_repository(
+    request: ConnectRepositoryRequest,
+    current_user: dict = Depends(get_current_user_required)
+):
+    """Connect a repository to the user's account"""
+    try:
+        user_id = current_user["sub"]
+
+        # Get user's GitHub access token from auth service
+        github_token = await get_user_github_token(user_id)
+
+        # Verify repository access and get metadata
+        async with GitHubAPIClient(github_token) as github_client:
+            try:
+                repo_info = await github_client.get_repository_info(request.owner, request.name)
+            except Exception as e:
+                if "404" in str(e):
+                    raise HTTPException(status_code=404, detail="Repository not found or no access")
+                elif "403" in str(e):
+                    raise HTTPException(status_code=403, detail="Insufficient permissions")
+                else:
+                    raise HTTPException(status_code=500, detail="Failed to verify repository access")
+
+        # Check for deduplication - repository already exists
+        conn = psycopg2.connect(DATABASE_URL)
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id FROM dispatchai.repositories
+                WHERE github_repo_id = %s OR (owner = %s AND name = %s)
+            """, (repo_info["id"], request.owner, request.name))
+            existing_repo = cur.fetchone()
+
+            if existing_repo:
+                repo_id = existing_repo[0]
+                # Check if user is already connected
+                cur.execute("""
+                    SELECT 1 FROM dispatchai.user_repositories
+                    WHERE user_id = %s AND repo_id = %s
+                """, (user_id, repo_id))
+                if cur.fetchone():
+                    conn.close()
+                    return ConnectRepositoryResponse(
+                        success=False,
+                        message="Repository already connected to your account"
+                    )
+            else:
+                # Create new repository record
+                cur.execute("""
+                    INSERT INTO dispatchai.repositories (
+                        github_repo_id, owner, name, private, is_public_dashboard
+                    ) VALUES (%s, %s, %s, %s, %s)
+                    RETURNING id
+                """, (
+                    repo_info["id"],
+                    request.owner,
+                    request.name,
+                    repo_info["private"],
+                    not repo_info["private"] and request.is_public
+                ))
+                repo_id = cur.fetchone()[0]
+
+            # Connect user to repository
+            cur.execute("""
+                INSERT INTO dispatchai.user_repositories (user_id, repo_id, role, can_write)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (user_id, repo_id) DO NOTHING
+            """, (
+                user_id,
+                repo_id,
+                "owner" if repo_info["permissions"]["admin"] else "viewer",
+                repo_info["permissions"]["push"]
+            ))
+
+        conn.commit()
+        conn.close()
+
+        logger.info("Repository connected", user_id=user_id, owner=request.owner, repo=request.name)
+
+        return ConnectRepositoryResponse(
+            success=True,
+            message="Repository connected successfully",
+            repository=RepositoryResponse(
+                owner=request.owner,
+                name=request.name,
+                full_name=f"{request.owner}/{request.name}",
+                permissions={
+                    "admin": repo_info["permissions"]["admin"],
+                    "push": repo_info["permissions"]["push"],
+                    "pull": repo_info["permissions"]["pull"]
+                }
+            )
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error connecting repository", user_id=user_id, error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to connect repository")
+
+@app.post("/api/repos/validate-public", response_model=ConnectRepositoryResponse)
+async def validate_public_repository_endpoint(request: PublicRepositoryRequest):
+    """Validate and get metadata for a public GitHub repository URL"""
+    try:
+        owner, repo = parse_github_url(request.github_url)
+        repo_info = await validate_public_repository(request.github_url)
+
+        return ConnectRepositoryResponse(
+            success=True,
+            message="Public repository validated",
+            repository=RepositoryResponse(
+                owner=owner,
+                name=repo,
+                full_name=f"{owner}/{repo}",
+                permissions={"admin": False, "push": False, "pull": True}
+            )
+        )
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Error validating public repository", url=request.github_url, error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to validate repository")
+
+@app.delete("/api/repos/{owner}/{repo}", response_model=DisconnectRepositoryResponse)
+async def disconnect_repository(
+    owner: str,
+    repo: str,
+    current_user: dict = Depends(get_current_user_required)
+):
+    """Disconnect a repository from the user's account"""
+    try:
+        user_id = current_user["sub"]
+
+        conn = psycopg2.connect(DATABASE_URL)
+        with conn.cursor() as cur:
+            # Find repository
+            cur.execute("""
+                SELECT r.id FROM dispatchai.repositories r
+                WHERE r.owner = %s AND r.name = %s
+            """, (owner, repo))
+            repo_record = cur.fetchone()
+
+            if not repo_record:
+                conn.close()
+                raise HTTPException(status_code=404, detail="Repository not found")
+
+            repo_id = repo_record[0]
+
+            # Check if user is connected
+            cur.execute("""
+                SELECT 1 FROM dispatchai.user_repositories
+                WHERE user_id = %s AND repo_id = %s
+            """, (user_id, repo_id))
+
+            if not cur.fetchone():
+                conn.close()
+                return DisconnectRepositoryResponse(
+                    success=False,
+                    message="Repository not connected to your account"
+                )
+
+            # Remove user-repository connection
+            cur.execute("""
+                DELETE FROM dispatchai.user_repositories
+                WHERE user_id = %s AND repo_id = %s
+            """, (user_id, repo_id))
+
+            # Also remove sync records for this user
+            cur.execute("""
+                DELETE FROM dispatchai.repository_syncs
+                WHERE user_id = %s AND repository_owner = %s AND repository_name = %s
+            """, (user_id, owner, repo))
+
+        conn.commit()
+        conn.close()
+
+        logger.info("Repository disconnected", user_id=user_id, owner=owner, repo=repo)
+
+        return DisconnectRepositoryResponse(
+            success=True,
+            message="Repository disconnected successfully"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error disconnecting repository", user_id=user_id, error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to disconnect repository")
 
 
 @app.post("/api/issues/{issue_id}/correct")

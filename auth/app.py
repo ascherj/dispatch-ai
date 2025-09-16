@@ -5,7 +5,7 @@ Clean, modular authentication service inspired by OpenAuth.js patterns
 
 import os
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 import structlog
 from fastapi import FastAPI, HTTPException, Depends, status, Request
@@ -123,9 +123,9 @@ class RepositoryResponse(BaseModel):
     name: str
     full_name: str
     permissions: Dict[str, bool]
-    last_sync_at: str = None
+    last_sync_at: Optional[str] = None
     issues_synced: int = 0
-    sync_status: str = None
+    sync_status: Optional[str] = None
 
 class HealthResponse(BaseModel):
     status: str
@@ -225,6 +225,19 @@ async def get_user_profile(current_user: UserSubject = Depends(get_current_user)
         created_at=current_user.created_at.isoformat(),
         properties=current_user.properties
     )
+
+@app.get("/auth/user/{user_id}/github-token")
+async def get_user_github_token(user_id: int):
+    """Get GitHub access token for user (internal endpoint for gateway service)"""
+    try:
+        token = await storage.get_user_access_token(user_id)
+        if not token:
+            raise HTTPException(status_code=404, detail="GitHub token not found")
+
+        return {"access_token": token}
+    except Exception as e:
+        logger.error("Error retrieving GitHub token", user_id=user_id, error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to retrieve GitHub token")
 
 @app.get("/auth/user/repositories")
 async def get_user_repositories(current_user: UserSubject = Depends(get_current_user)):
