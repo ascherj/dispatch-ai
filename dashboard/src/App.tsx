@@ -5,6 +5,7 @@ import { useAuth } from './hooks/useAuth'
 import LoginButton from './components/LoginButton'
 import RepositoryManager from './components/RepositoryManager'
 import AuthCallback from './components/AuthCallback'
+import WelcomePage from './components/WelcomePage'
 
 interface Issue {
   id: number
@@ -39,7 +40,7 @@ interface Stats {
 }
 
 function DashboardContent() {
-  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const { isAuthenticated, isLoading: authLoading, token } = useAuth();
   const [issues, setIssues] = useState<Issue[]>([])
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('disconnected')
   const [stats, setStats] = useState<Stats | null>(null)
@@ -50,6 +51,20 @@ function DashboardContent() {
     return saved ? saved === 'dark' : true // Default to dark mode
   })
   const [activeTab, setActiveTab] = useState<'issues' | 'repositories'>('issues')
+
+  // Utility function for authenticated API calls
+  const authenticatedFetch = async (url: string, options: RequestInit = {}) => {
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+      ...(options.headers || {}),
+    }
+
+    return fetch(url, {
+      ...options,
+      headers,
+    })
+  }
 
   useEffect(() => {
     let ws: WebSocket | null = null
@@ -178,19 +193,32 @@ function DashboardContent() {
   }, [])
 
   useEffect(() => {
+    // Only fetch data if user is authenticated
+    if (!isAuthenticated || !token) return
+
     // Fetch initial issues
     const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8002'
-    fetch(`${apiUrl}/api/issues`)
-      .then(res => res.json())
+    authenticatedFetch(`${apiUrl}/api/issues`)
+      .then(res => {
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}: ${res.statusText}`)
+        }
+        return res.json()
+      })
       .then(data => setIssues(data))
       .catch(error => console.error('Error fetching issues:', error))
 
     // Fetch stats
-    fetch(`${apiUrl}/api/stats`)
-      .then(res => res.json())
+    authenticatedFetch(`${apiUrl}/api/stats`)
+      .then(res => {
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}: ${res.statusText}`)
+        }
+        return res.json()
+      })
       .then(data => setStats(data))
       .catch(error => console.error('Error fetching stats:', error))
-  }, [])
+  }, [isAuthenticated, token])
 
   // Theme persistence effect
   useEffect(() => {
@@ -210,7 +238,7 @@ function DashboardContent() {
   const triggerClassification = async (issueId: number) => {
     try {
       const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8002'
-      await fetch(`${apiUrl}/api/issues/${issueId}/classify`, {
+      await authenticatedFetch(`${apiUrl}/api/issues/${issueId}/classify`, {
         method: 'POST'
       })
     } catch (error) {
@@ -237,11 +265,8 @@ function DashboardContent() {
     setIsSubmitting(true)
     try {
       const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8002'
-      const response = await fetch(`${apiUrl}/api/issues/${editingIssue.id}/correct`, {
+      const response = await authenticatedFetch(`${apiUrl}/api/issues/${editingIssue.id}/correct`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
         body: JSON.stringify({
           issue_id: editingIssue.id,
           category: editingIssue.category,
@@ -295,6 +320,11 @@ function DashboardContent() {
         </div>
       </div>
     );
+  }
+
+  // Show welcome page for unauthenticated users
+  if (!isAuthenticated) {
+    return <WelcomePage />;
   }
 
   return (

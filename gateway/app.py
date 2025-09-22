@@ -320,16 +320,29 @@ async def get_issues(
     category: Optional[str] = None,
     priority: Optional[str] = None,
     limit: int = 50,
+    current_user: dict = Depends(get_current_user_required),
 ):
     """
-    Get issues with optional filtering
+    Get issues with optional filtering for authenticated user only
     """
     try:
+        user_id = current_user["sub"]
         conn = psycopg2.connect(DATABASE_URL)
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            # Build dynamic query
-            where_conditions = []
-            params = []
+            # Build dynamic query - only show issues from user's connected repositories or issues pulled by the user
+            where_conditions = [
+                """(
+                    EXISTS (
+                        SELECT 1 FROM dispatchai.user_repositories ur
+                        JOIN dispatchai.repositories r ON ur.repo_id = r.id
+                        WHERE ur.user_id = %s
+                        AND r.owner = i.repository_owner
+                        AND r.name = i.repository_name
+                    )
+                    OR i.pulled_by_user_id = %s
+                )"""
+            ]
+            params = [user_id, user_id]
 
             if repository:
                 where_conditions.append("i.repository_name = %s")
@@ -343,7 +356,7 @@ async def get_issues(
                 where_conditions.append("e.priority = %s")
                 params.append(priority)
 
-            where_clause = " AND ".join(where_conditions) if where_conditions else "1=1"
+            where_clause = " AND ".join(where_conditions)
 
             query = f"""
                 SELECT
@@ -517,12 +530,13 @@ async def test_websocket():
 
 
 @app.get("/api/stats")
-async def get_stats():
-    """Get dashboard statistics"""
+async def get_stats(current_user: dict = Depends(get_current_user_required)):
+    """Get dashboard statistics for authenticated user only"""
     try:
+        user_id = current_user["sub"]
         conn = psycopg2.connect(DATABASE_URL)
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            # Get basic counts
+            # Get basic counts - only for user's accessible repositories
             cur.execute("""
                 SELECT
                     COUNT(*) as total_issues,
@@ -530,24 +544,56 @@ async def get_stats():
                     COUNT(*) - COUNT(e.issue_id) as pending_issues
                 FROM dispatchai.issues i
                 LEFT JOIN dispatchai.enriched_issues e ON i.id = e.issue_id
-            """)
+                WHERE (
+                    EXISTS (
+                        SELECT 1 FROM dispatchai.user_repositories ur
+                        JOIN dispatchai.repositories r ON ur.repo_id = r.id
+                        WHERE ur.user_id = %s
+                        AND r.owner = i.repository_owner
+                        AND r.name = i.repository_name
+                    )
+                    OR i.pulled_by_user_id = %s
+                )
+            """, (user_id, user_id))
             counts = cur.fetchone()
 
-            # Get category breakdown
+            # Get category breakdown - only for user's accessible repositories
             cur.execute("""
                 SELECT category, COUNT(*) as count
-                FROM dispatchai.enriched_issues
+                FROM dispatchai.enriched_issues e
+                JOIN dispatchai.issues i ON e.issue_id = i.id
                 WHERE category IS NOT NULL
+                AND (
+                    EXISTS (
+                        SELECT 1 FROM dispatchai.user_repositories ur
+                        JOIN dispatchai.repositories r ON ur.repo_id = r.id
+                        WHERE ur.user_id = %s
+                        AND r.owner = i.repository_owner
+                        AND r.name = i.repository_name
+                    )
+                    OR i.pulled_by_user_id = %s
+                )
                 GROUP BY category
                 ORDER BY count DESC
-            """)
+            """, (user_id, user_id))
             categories = cur.fetchall()
 
-            # Get priority breakdown
+            # Get priority breakdown - only for user's accessible repositories
             cur.execute("""
                 SELECT priority, COUNT(*) as count
-                FROM dispatchai.enriched_issues
+                FROM dispatchai.enriched_issues e
+                JOIN dispatchai.issues i ON e.issue_id = i.id
                 WHERE priority IS NOT NULL
+                AND (
+                    EXISTS (
+                        SELECT 1 FROM dispatchai.user_repositories ur
+                        JOIN dispatchai.repositories r ON ur.repo_id = r.id
+                        WHERE ur.user_id = %s
+                        AND r.owner = i.repository_owner
+                        AND r.name = i.repository_name
+                    )
+                    OR i.pulled_by_user_id = %s
+                )
                 GROUP BY priority
                 ORDER BY
                     CASE priority
@@ -557,7 +603,7 @@ async def get_stats():
                         WHEN 'low' THEN 4
                         ELSE 5
                     END
-            """)
+            """, (user_id, user_id))
             priorities = cur.fetchall()
 
         conn.close()
