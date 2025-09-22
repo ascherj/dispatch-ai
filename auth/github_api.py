@@ -4,6 +4,7 @@ Handles authenticated requests to GitHub's REST API
 """
 
 import os
+import json
 from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime
 import asyncio
@@ -11,6 +12,7 @@ import asyncio
 import structlog
 import httpx
 from pydantic import BaseModel
+from kafka import KafkaProducer
 
 logger = structlog.get_logger()
 
@@ -230,10 +232,75 @@ class GitHubAPIClient:
         return response.json()
 
 class GitHubIssueSyncer:
-    """Handles syncing GitHub issues to the database"""
+    """Handles syncing GitHub issues to the database and classification pipeline"""
 
-    def __init__(self, db_connection_factory):
+    def __init__(self, db_connection_factory, kafka_bootstrap_servers: Optional[str] = None):
         self.get_db_connection = db_connection_factory
+        self.kafka_bootstrap_servers = kafka_bootstrap_servers or os.getenv("KAFKA_BOOTSTRAP_SERVERS", "redpanda:9092")
+        self.kafka_producer = None
+
+    def _get_kafka_producer(self):
+        """Get or create Kafka producer"""
+        if self.kafka_producer is None:
+            try:
+                self.kafka_producer = KafkaProducer(
+                    bootstrap_servers=self.kafka_bootstrap_servers.split(','),
+                    value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+                    key_serializer=lambda k: str(k).encode('utf-8') if k else None,
+                    acks='all',
+                    retries=3,
+                    max_in_flight_requests_per_connection=1
+                )
+            except Exception as e:
+                logger.warning("Failed to initialize Kafka producer", error=str(e))
+                self.kafka_producer = None
+        return self.kafka_producer
+
+    async def _publish_issue_to_kafka(self, github_issue: GitHubIssue):
+        """Publish a synced issue to Kafka for classification"""
+        producer = self._get_kafka_producer()
+        if not producer:
+            logger.warning("Kafka producer not available, skipping classification pipeline")
+            return
+
+        try:
+            # Convert to the same format as webhook issues
+            issue_payload = {
+                "action": "opened",
+                "issue": {
+                    "id": github_issue.id,
+                    "number": github_issue.number,
+                    "title": github_issue.title,
+                    "body": github_issue.body,
+                    "state": github_issue.state,
+                    "labels": github_issue.labels,
+                    "assignees": github_issue.assignees,
+                    "user": github_issue.user,
+                    "created_at": github_issue.created_at,
+                    "updated_at": github_issue.updated_at,
+                    "closed_at": github_issue.closed_at,
+                    "html_url": github_issue.html_url
+                },
+                "repository": github_issue.repository,
+                "sender": github_issue.user,
+                "sync_source": "manual_pull"  # Mark as synced issue
+            }
+
+            # Publish to issues.raw topic (same as webhooks)
+            key = f"{github_issue.repository['owner']}/{github_issue.repository['name']}/{github_issue.number}"
+            future = producer.send('issues.raw', key=key, value=issue_payload)
+
+            # Wait for confirmation (with timeout)
+            record_metadata = future.get(timeout=10)
+            logger.info("Published synced issue to Kafka",
+                       issue_id=github_issue.id,
+                       topic=record_metadata.topic,
+                       partition=record_metadata.partition)
+
+        except Exception as e:
+            logger.error("Failed to publish synced issue to Kafka",
+                        issue_id=github_issue.id,
+                        error=str(e))
 
     async def sync_repository_issues(
         self,
@@ -276,7 +343,7 @@ class GitHubIssueSyncer:
                     issues_stored=0
                 )
 
-            # Store issues in database
+            # Store issues in database and publish to Kafka for classification
             stored_count = await self._store_issues(issues, user_id)
 
             # Find the most recent issue update time
@@ -369,6 +436,7 @@ class GitHubIssueSyncer:
             with conn.cursor() as cur:
                 for issue in issues:
                     try:
+                        logger.info("Storing issue", issue_id=issue.id, title=issue.title)
                         # Convert labels to simple list of names
                         label_names = [label["name"] for label in issue.labels]
 
@@ -397,18 +465,21 @@ class GitHubIssueSyncer:
                             issue.title,
                             issue.body,
                             issue.state,
-                            label_names,  # JSON array of label names
-                            [assignee["login"] for assignee in issue.assignees],  # JSON array of usernames
+                            json.dumps(label_names),  # JSON serialize array of label names
+                            json.dumps([assignee["login"] for assignee in issue.assignees]),  # JSON serialize array of usernames
                             issue.user["login"],
                             issue.user.get("type", "User"),  # Use type instead of association for manual pulls
                             issue.created_at,
                             issue.updated_at,
                             issue.closed_at,
-                            issue.dict(),  # Store full GitHub response as raw data
+                            json.dumps(issue.dict()),  # JSON serialize full GitHub response as raw data
                             "manual_pull",
                             user_id
                         ))
                         stored_count += 1
+
+                        # Publish issue to Kafka for classification
+                        await self._publish_issue_to_kafka(issue)
 
                     except Exception as e:
                         logger.error("Error storing issue", issue_id=issue.id, error=str(e))

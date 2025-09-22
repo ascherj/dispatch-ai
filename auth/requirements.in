@@ -29,3 +29,6 @@ python-dateutil>=2.8.2
 
 # Session management
 itsdangerous>=2.1.2
+
+# Kafka client for publishing synced issues to classification pipeline
+kafka-python>=2.0.2

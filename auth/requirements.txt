@@ -41,6 +41,8 @@ idna==3.10
     #   httpx
 itsdangerous==2.2.0
     # via -r requirements.in
+kafka-python==2.2.15
+    # via -r requirements.in
 psycopg2-binary==2.9.10
     # via -r requirements.in
 pycparser==2.23
