@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import './App.css'
 import { AuthProvider } from './contexts/AuthContext'
 import { useAuth } from './hooks/useAuth'
@@ -53,7 +53,7 @@ function DashboardContent() {
   const [activeTab, setActiveTab] = useState<'issues' | 'repositories'>('issues')
 
   // Utility function for authenticated API calls
-  const authenticatedFetch = async (url: string, options: RequestInit = {}) => {
+  const authenticatedFetch = useCallback(async (url: string, options: RequestInit = {}) => {
     const headers = {
       'Content-Type': 'application/json',
       ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
@@ -64,7 +64,7 @@ function DashboardContent() {
       ...options,
       headers,
     })
-  }
+  }, [token])
 
   useEffect(() => {
     let ws: WebSocket | null = null
@@ -218,7 +218,7 @@ function DashboardContent() {
       })
       .then(data => setStats(data))
       .catch(error => console.error('Error fetching stats:', error))
-  }, [isAuthenticated, token])
+  }, [isAuthenticated, token, authenticatedFetch])
 
   // Theme persistence effect
   useEffect(() => {

@@ -538,7 +538,8 @@ async def get_stats(current_user: dict = Depends(get_current_user_required)):
         conn = psycopg2.connect(DATABASE_URL)
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             # Get basic counts - only for user's accessible repositories
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT
                     COUNT(*) as total_issues,
                     COUNT(e.issue_id) as classified_issues,
@@ -555,11 +556,14 @@ async def get_stats(current_user: dict = Depends(get_current_user_required)):
                     )
                     OR i.pulled_by_user_id = %s
                 )
-            """, (user_id, user_id))
+            """,
+                (user_id, user_id),
+            )
             counts = cur.fetchone()
 
             # Get category breakdown - only for user's accessible repositories
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT category, COUNT(*) as count
                 FROM dispatchai.enriched_issues e
                 JOIN dispatchai.issues i ON e.issue_id = i.id
@@ -576,11 +580,14 @@ async def get_stats(current_user: dict = Depends(get_current_user_required)):
                 )
                 GROUP BY category
                 ORDER BY count DESC
-            """, (user_id, user_id))
+            """,
+                (user_id, user_id),
+            )
             categories = cur.fetchall()
 
             # Get priority breakdown - only for user's accessible repositories
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT priority, COUNT(*) as count
                 FROM dispatchai.enriched_issues e
                 JOIN dispatchai.issues i ON e.issue_id = i.id
@@ -604,7 +611,9 @@ async def get_stats(current_user: dict = Depends(get_current_user_required)):
                         WHEN 'low' THEN 4
                         ELSE 5
                     END
-            """, (user_id, user_id))
+            """,
+                (user_id, user_id),
+            )
             priorities = cur.fetchall()
 
         conn.close()
