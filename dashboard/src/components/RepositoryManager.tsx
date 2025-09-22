@@ -10,6 +10,7 @@ interface Repository {
     push: boolean;
     pull: boolean;
   };
+  connected: boolean;
   last_sync_at?: string;
   issues_synced: number;
   sync_status?: string;
@@ -404,7 +405,7 @@ const RepositoryManager: React.FC = () => {
                             const isSyncing = syncingRepos.has(repoKey);
                             const isConnecting = connectingRepos.has(repoKey);
                             const isDisconnecting = disconnectingRepos.has(repoKey);
-                            const isConnected = repo.last_sync_at !== null; // If synced before, it's connected
+                            const isConnected = repo.connected; // Use proper connection status from backend
 
                             return (
                               <div key={repo.full_name} className="repository-card">

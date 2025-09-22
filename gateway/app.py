@@ -129,6 +129,7 @@ class RepositoryResponse(BaseModel):
     name: str
     full_name: str
     permissions: Dict[str, bool]
+    connected: bool = False
     last_sync_at: Optional[str] = None
     issues_synced: int = 0
     sync_status: Optional[str] = None
@@ -851,6 +852,7 @@ async def connect_repository(
                     "push": repo_info["permissions"]["push"],
                     "pull": repo_info["permissions"]["pull"],
                 },
+                connected=True,
             ),
         )
 
@@ -876,6 +878,7 @@ async def validate_public_repository_endpoint(request: PublicRepositoryRequest):
                 name=repo,
                 full_name=f"{owner}/{repo}",
                 permissions={"admin": False, "push": False, "pull": True},
+                connected=False,
             ),
         )
 
@@ -1034,9 +1037,10 @@ async def get_organization_repositories(
         async with GitHubAPIClient(github_token) as github_client:
             repositories = await github_client.get_organization_repositories(org_login)
 
-        # Get sync status from database for user's connected repositories
+        # Get sync status and connection status from database
         conn = psycopg2.connect(DATABASE_URL)
         with conn.cursor() as cur:
+            # Get sync status
             cur.execute(
                 """
                 SELECT repository_owner, repository_name, last_sync_at, issues_synced, sync_status
@@ -1053,6 +1057,18 @@ async def get_organization_repositories(
                 }
                 for row in cur.fetchall()
             }
+
+            # Get connection status
+            cur.execute(
+                """
+                SELECT r.owner, r.name
+                FROM dispatchai.user_repositories ur
+                JOIN dispatchai.repositories r ON ur.repo_id = r.id
+                WHERE ur.user_id = %s
+            """,
+                (user_id,),
+            )
+            connected_repos = {f"{row[0]}/{row[1]}" for row in cur.fetchall()}
 
         conn.close()
 
@@ -1072,6 +1088,7 @@ async def get_organization_repositories(
                         "push": repo["permissions"]["push"],
                         "pull": repo["permissions"]["pull"],
                     },
+                    connected=full_name in connected_repos,
                     last_sync_at=sync_info.get("last_sync_at"),
                     issues_synced=sync_info.get("issues_synced", 0),
                     sync_status=sync_info.get("sync_status"),
