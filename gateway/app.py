@@ -30,6 +30,14 @@ from jose import jwt, JWTError
 from github_client import GitHubAPIClient, validate_public_repository, parse_github_url
 
 # Configure structured logging
+import logging
+
+# Set up Python's standard logging to respect LOG_LEVEL
+logging.basicConfig(
+    format="%(message)s",
+    level=os.getenv("LOG_LEVEL", "INFO"),
+)
+
 structlog.configure(
     processors=[
         structlog.stdlib.filter_by_level,
@@ -166,6 +174,7 @@ class OrganizationResponse(BaseModel):
     type: str  # "Organization" or "User"
     public_repos: int
     total_private_repos: Optional[int] = None
+    accessible_repos: Optional[int] = None
 
 
 class OrganizationRepositoriesResponse(BaseModel):
@@ -232,10 +241,10 @@ class ConnectionManager:
         await websocket.accept()
         self.active_connections[websocket] = user
         logger.info(
-            "Client connected", 
+            "Client connected",
             total_connections=len(self.active_connections),
             authenticated=user is not None,
-            user_id=user.get("sub") if user else None
+            user_id=user.get("sub") if user else None,
         )
 
     def disconnect(self, websocket: WebSocket):
@@ -307,7 +316,7 @@ async def health_check():
 async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
     """WebSocket endpoint for real-time updates with JWT authentication"""
     user = None
-    
+
     if token:
         try:
             user = verify_jwt_token(token)
@@ -318,7 +327,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
             return
     else:
         logger.info("WebSocket connection without authentication (public access)")
-    
+
     await manager.connect(websocket, user)
     try:
         while True:
@@ -349,9 +358,11 @@ async def get_public_repository_issues(
                 (owner, repo),
             )
             repo_row = cur.fetchone()
-            
+
             if not repo_row or not repo_row["is_public_dashboard"]:
-                raise HTTPException(status_code=404, detail="Public repository not found")
+                raise HTTPException(
+                    status_code=404, detail="Public repository not found"
+                )
 
             where_conditions = ["i.repository_owner = %s", "i.repository_name = %s"]
             params = [owner, repo]
@@ -410,7 +421,12 @@ async def get_public_repository_issues(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Error fetching public repository issues", owner=owner, repo=repo, error=str(e))
+        logger.error(
+            "Error fetching public repository issues",
+            owner=owner,
+            repo=repo,
+            error=str(e),
+        )
         raise HTTPException(status_code=500, detail="Failed to fetch issues")
 
 
@@ -506,7 +522,9 @@ async def get_issues(
 
 
 @app.get("/api/issues/{issue_id}", response_model=IssueResponse)
-async def get_issue(issue_id: int, current_user: Optional[dict] = Depends(get_current_user)):
+async def get_issue(
+    issue_id: int, current_user: Optional[dict] = Depends(get_current_user)
+):
     """Get a specific issue by ID (requires auth or public repo)"""
     try:
         conn = psycopg2.connect(DATABASE_URL)
@@ -535,7 +553,7 @@ async def get_issue(issue_id: int, current_user: Optional[dict] = Depends(get_cu
         is_public = row.get("is_public_dashboard", False)
         if not is_public and not current_user:
             raise HTTPException(status_code=401, detail="Authentication required")
-        
+
         if not is_public and current_user:
             user_id = current_user.get("sub")
             conn = psycopg2.connect(DATABASE_URL)
@@ -552,7 +570,7 @@ async def get_issue(issue_id: int, current_user: Optional[dict] = Depends(get_cu
                 )
                 has_access = cur.fetchone() is not None
             conn.close()
-            
+
             if not has_access:
                 raise HTTPException(status_code=403, detail="Access denied")
 
@@ -669,9 +687,11 @@ async def get_public_repository_stats(owner: str, repo: str):
                 (owner, repo),
             )
             repo_row = cur.fetchone()
-            
+
             if not repo_row or not repo_row["is_public_dashboard"]:
-                raise HTTPException(status_code=404, detail="Public repository not found")
+                raise HTTPException(
+                    status_code=404, detail="Public repository not found"
+                )
 
             cur.execute(
                 """
@@ -739,7 +759,12 @@ async def get_public_repository_stats(owner: str, repo: str):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Error fetching public repository stats", owner=owner, repo=repo, error=str(e))
+        logger.error(
+            "Error fetching public repository stats",
+            owner=owner,
+            repo=repo,
+            error=str(e),
+        )
         raise HTTPException(status_code=500, detail="Failed to fetch statistics")
 
 
@@ -1208,22 +1233,29 @@ async def get_user_organizations(
         async with GitHubAPIClient(github_token) as github_client:
             organizations = await github_client.get_user_organizations()
 
-        # Convert to response models
-        result = []
-        for org in organizations:
-            result.append(
-                OrganizationResponse(
-                    id=org.id,
-                    login=org.login,
-                    name=org.name,
-                    description=org.description,
-                    avatar_url=org.avatar_url,
-                    html_url=org.html_url,
-                    type=org.type,
-                    public_repos=org.public_repos,
-                    total_private_repos=org.total_private_repos,
+            # Fetch accessible repos count for each organization
+            result = []
+            for org in organizations:
+                # Get accessible repositories for this org to get accurate count
+                # Limit to 200 repos for performance (just for counting)
+                accessible_repos = await github_client.get_organization_repositories(
+                    org.login, max_repos=200
                 )
-            )
+
+                result.append(
+                    OrganizationResponse(
+                        id=org.id,
+                        login=org.login,
+                        name=org.name,
+                        description=org.description,
+                        avatar_url=org.avatar_url,
+                        html_url=org.html_url,
+                        type=org.type,
+                        public_repos=org.public_repos,
+                        total_private_repos=org.total_private_repos,
+                        accessible_repos=len(accessible_repos),
+                    )
+                )
 
         logger.info("Fetched user organizations", user_id=user_id, count=len(result))
         return result
@@ -1649,19 +1681,19 @@ class RobustKafkaConsumer:
             if "issue" in event_data:
                 repo_owner = event_data["issue"].get("repository_owner")
                 repo_name = event_data["issue"].get("repository_name")
-            
+
             # Create filter function for user access control
             def user_can_see_issue(user: Optional[Dict[str, Any]]) -> bool:
                 if user is None:
                     return False
-                
+
                 if not repo_owner or not repo_name:
                     return True
-                
+
                 user_id = user.get("sub")
                 if not user_id:
                     return False
-                
+
                 try:
                     conn = psycopg2.connect(DATABASE_URL)
                     with conn.cursor() as cur:
@@ -1686,7 +1718,9 @@ class RobustKafkaConsumer:
                 f"DEBUG: Broadcasting to {len(self.manager.active_connections)} WebSocket clients with filtering"
             )
 
-            await self.manager.broadcast(json.dumps(websocket_message), user_filter=user_can_see_issue)
+            await self.manager.broadcast(
+                json.dumps(websocket_message), user_filter=user_can_see_issue
+            )
 
             print(f"DEBUG: Successfully broadcasted message from {message.topic}")
 
@@ -1695,7 +1729,9 @@ class RobustKafkaConsumer:
                 topic=message.topic,
                 connected_clients=len(self.manager.active_connections),
                 message_type=websocket_message["type"],
-                repository=f"{repo_owner}/{repo_name}" if repo_owner and repo_name else None,
+                repository=f"{repo_owner}/{repo_name}"
+                if repo_owner and repo_name
+                else None,
             )
 
         except Exception as e:

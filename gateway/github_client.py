@@ -53,6 +53,7 @@ class GitHubOrganization(BaseModel):
     type: str  # "Organization" or "User"
     public_repos: int
     total_private_repos: Optional[int] = None
+    accessible_repos: Optional[int] = None
 
 
 class GitHubAPIClient:
@@ -186,34 +187,62 @@ class GitHubAPIClient:
         return organizations
 
     async def get_organization_repositories(
-        self, org_login: str, per_page: int = 100
+        self, org_login: str, per_page: int = 100, max_repos: Optional[int] = None
     ) -> List[Dict[str, Any]]:
         """Get repositories for a specific organization or user"""
         repositories = []
         page = 1
 
-        # Determine the endpoint based on whether this is a user or organization
-        # Try user repos first, then org repos if that fails
-        endpoints_to_try = [
-            f"{self.base_url}/users/{org_login}/repos",  # User repositories
-            f"{self.base_url}/orgs/{org_login}/repos",  # Organization repositories
-        ]
+        # Get current authenticated user to check if org_login is the user themselves
+        try:
+            user_response = await self.session.get(f"{self.base_url}/user")
+            user_response.raise_for_status()
+            current_user = user_response.json()
+            is_current_user = current_user["login"] == org_login
+        except Exception as e:
+            logger.error("Error fetching current user", error=str(e))
+            is_current_user = False
 
-        for endpoint in endpoints_to_try:
+        # Determine endpoints based on whether this is the current user or an org
+        if is_current_user:
+            # For the authenticated user, use /user/repos to get owned/collaborated repos only
+            # Exclude organization_member to avoid duplicates (orgs are listed separately)
+            endpoints_to_try = [
+                (
+                    f"{self.base_url}/user/repos",
+                    {"affiliation": "owner,collaborator"},
+                ),
+            ]
+        else:
+            # For organizations, try /orgs first (returns public + private with access)
+            # Then fall back to /users (returns public only)
+            endpoints_to_try = [
+                (f"{self.base_url}/orgs/{org_login}/repos", {}),
+                (f"{self.base_url}/users/{org_login}/repos", {}),
+            ]
+
+        for endpoint_config in endpoints_to_try:
+            endpoint = (
+                endpoint_config[0]
+                if isinstance(endpoint_config, tuple)
+                else endpoint_config
+            )
+            extra_params = (
+                endpoint_config[1] if isinstance(endpoint_config, tuple) else {}
+            )
             try:
                 page = 1
                 repositories = []
 
                 while True:
-                    response = await self.session.get(
-                        endpoint,
-                        params={
-                            "per_page": per_page,
-                            "page": page,
-                            "sort": "updated",
-                            "direction": "desc",
-                        },
-                    )
+                    params = {
+                        "per_page": per_page,
+                        "page": page,
+                        "sort": "updated",
+                        "direction": "desc",
+                        **extra_params,
+                    }
+                    response = await self.session.get(endpoint, params=params)
 
                     if response.status_code == 404:
                         # Try next endpoint
@@ -235,9 +264,31 @@ class GitHubAPIClient:
                             or permissions.get("push", False)
                             or permissions.get("admin", False)
                         ):
+                            logger.info(
+                                "User has access to repository",
+                                repo_name=repo.get("full_name"),
+                                endpoint=endpoint,
+                                permissions=repo.get("permissions", {}),
+                            )
                             accessible_repos.append(repo)
+                        else:
+                            logger.info(
+                                "User does not have access to repository",
+                                repo_name=repo.get("full_name"),
+                                permissions=repo.get("permissions", {}),
+                            )
 
                     repositories.extend(accessible_repos)
+
+                    # Check if we've hit the max_repos limit
+                    if max_repos and len(repositories) >= max_repos:
+                        logger.info(
+                            "Reached max_repos limit",
+                            org=org_login,
+                            max_repos=max_repos,
+                            fetched=len(repositories),
+                        )
+                        break
 
                     # Check rate limiting
                     remaining = int(response.headers.get("X-RateLimit-Remaining", 0))
@@ -260,6 +311,15 @@ class GitHubAPIClient:
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 404:
                     continue  # Try next endpoint
+                elif e.response.status_code in [502, 503, 504]:
+                    # GitHub server errors - try fallback endpoint
+                    logger.warning(
+                        "GitHub server error, trying fallback endpoint",
+                        org=org_login,
+                        endpoint=endpoint,
+                        status=e.response.status_code,
+                    )
+                    continue
                 else:
                     logger.error(
                         "Error fetching organization repositories",

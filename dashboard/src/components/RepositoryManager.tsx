@@ -26,6 +26,7 @@ interface Organization {
   type: string; // "Organization" or "User"
   public_repos: number;
   total_private_repos?: number;
+  accessible_repos?: number;
 }
 
 interface OrganizationRepositories {
@@ -375,7 +376,7 @@ const RepositoryManager: React.FC = () => {
                           <span className="organization-type">({org.type})</span>
                         </h3>
                         <p className="organization-description">
-                          {org.description || `${org.public_repos} public repositories`}
+                          {org.description || `${org.accessible_repos ?? org.public_repos} accessible repositories`}
                         </p>
                       </div>
                     </div>
@@ -383,7 +384,7 @@ const RepositoryManager: React.FC = () => {
                       <span className={`expand-arrow ${isExpanded ? 'expanded' : ''}`}>
                         ▶
                       </span>
-                      <span className="repo-count">{org.public_repos} repos</span>
+                      <span className="repo-count">{org.accessible_repos ?? org.public_repos} repos</span>
                     </div>
                   </div>
 
