@@ -74,7 +74,8 @@ function DashboardContent() {
     const reconnectInterval = 3000 // 3 seconds
 
     const connectWebSocket = () => {
-      const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:8002/ws'
+      const baseWsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:8002/ws'
+      const wsUrl = token ? `${baseWsUrl}?token=${token}` : baseWsUrl
 
       setConnectionStatus('connecting')
       ws = new WebSocket(wsUrl)
@@ -181,16 +182,16 @@ function DashboardContent() {
     // Initial connection
     connectWebSocket()
 
-    // Cleanup on unmount
+    // Cleanup on unmount or token change
     return () => {
       if (reconnectTimeout) {
         clearTimeout(reconnectTimeout)
       }
       if (ws) {
-        ws.close(1000, 'Component unmounting')
+        ws.close(1000, 'Component unmounting or token changed')
       }
     }
-  }, [])
+  }, [token])
 
   useEffect(() => {
     // Only fetch data if user is authenticated

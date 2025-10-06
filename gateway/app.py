@@ -5,7 +5,7 @@ WebSocket and REST API gateway for real-time communication
 
 import os
 import json
-from typing import Dict, Any, List, Optional, Set
+from typing import Dict, Any, List, Optional
 from datetime import datetime
 import asyncio
 
@@ -223,18 +223,23 @@ async def get_user_github_token(user_id: int) -> str:
         raise HTTPException(status_code=401, detail="GitHub token not available")
 
 
-# WebSocket connection manager
+# WebSocket connection manager with user context
 class ConnectionManager:
     def __init__(self):
-        self.active_connections: Set[WebSocket] = set()
+        self.active_connections: Dict[WebSocket, Optional[dict]] = {}
 
-    async def connect(self, websocket: WebSocket):
+    async def connect(self, websocket: WebSocket, user: Optional[dict] = None):
         await websocket.accept()
-        self.active_connections.add(websocket)
-        logger.info("Client connected", total_connections=len(self.active_connections))
+        self.active_connections[websocket] = user
+        logger.info(
+            "Client connected", 
+            total_connections=len(self.active_connections),
+            authenticated=user is not None,
+            user_id=user.get("sub") if user else None
+        )
 
     def disconnect(self, websocket: WebSocket):
-        self.active_connections.discard(websocket)
+        self.active_connections.pop(websocket, None)
         logger.info(
             "Client disconnected", total_connections=len(self.active_connections)
         )
@@ -242,15 +247,14 @@ class ConnectionManager:
     async def send_personal_message(self, message: str, websocket: WebSocket):
         await websocket.send_text(message)
 
-    async def broadcast(self, message: str):
+    async def broadcast(self, message: str, user_filter: Optional[callable] = None):
         if self.active_connections:
-            await asyncio.gather(
-                *[
-                    connection.send_text(message)
-                    for connection in self.active_connections
-                ],
-                return_exceptions=True,
-            )
+            tasks = []
+            for connection, user in self.active_connections.items():
+                if user_filter is None or user_filter(user):
+                    tasks.append(connection.send_text(message))
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
 
 
 manager = ConnectionManager()
@@ -300,19 +304,114 @@ async def health_check():
 
 
 @app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    """WebSocket endpoint for real-time updates"""
-    await manager.connect(websocket)
+async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
+    """WebSocket endpoint for real-time updates with JWT authentication"""
+    user = None
+    
+    if token:
+        try:
+            user = verify_jwt_token(token)
+            logger.info("WebSocket connection authenticated", user_id=user.get("sub"))
+        except HTTPException:
+            logger.warning("WebSocket connection with invalid token")
+            await websocket.close(code=1008, reason="Invalid authentication token")
+            return
+    else:
+        logger.info("WebSocket connection without authentication (public access)")
+    
+    await manager.connect(websocket, user)
     try:
         while True:
-            # Keep connection alive and handle any incoming messages
             data = await websocket.receive_text()
-
-            # Echo back for now - can be extended for bidirectional communication
             await manager.send_personal_message(f"Echo: {data}", websocket)
 
     except WebSocketDisconnect:
         manager.disconnect(websocket)
+
+
+@app.get("/api/public/repos/{owner}/{repo}/issues", response_model=List[IssueResponse])
+async def get_public_repository_issues(
+    owner: str,
+    repo: str,
+    category: Optional[str] = None,
+    priority: Optional[str] = None,
+    limit: int = 50,
+):
+    """Get issues from a public repository (no auth required)"""
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT is_public_dashboard FROM dispatchai.repositories
+                WHERE owner = %s AND name = %s
+                """,
+                (owner, repo),
+            )
+            repo_row = cur.fetchone()
+            
+            if not repo_row or not repo_row["is_public_dashboard"]:
+                raise HTTPException(status_code=404, detail="Public repository not found")
+
+            where_conditions = ["i.repository_owner = %s", "i.repository_name = %s"]
+            params = [owner, repo]
+
+            if category:
+                where_conditions.append("e.category = %s")
+                params.append(category)
+
+            if priority:
+                where_conditions.append("e.priority = %s")
+                params.append(priority)
+
+            where_clause = " AND ".join(where_conditions)
+
+            query = f"""
+                SELECT
+                    i.id, i.issue_number, i.title, i.repository_name, i.created_at, i.updated_at,
+                    e.category, e.priority, e.confidence_score, e.tags
+                FROM dispatchai.issues i
+                LEFT JOIN dispatchai.enriched_issues e ON i.id = e.issue_id
+                WHERE {where_clause}
+                ORDER BY i.created_at DESC
+                LIMIT %s
+            """
+
+            params.append(limit)
+            cur.execute(query, params)
+            rows = cur.fetchall()
+
+        conn.close()
+
+        issues = []
+        for row in rows:
+            issues.append(
+                IssueResponse(
+                    id=row["id"],
+                    number=row["issue_number"],
+                    title=row["title"],
+                    repository=row["repository_name"],
+                    category=row["category"],
+                    priority=row["priority"],
+                    confidence=row["confidence_score"],
+                    tags=row["tags"] if isinstance(row["tags"], list) else [],
+                    created_at=row["created_at"].isoformat()
+                    if row["created_at"]
+                    else "",
+                    updated_at=row["updated_at"].isoformat()
+                    if row["updated_at"]
+                    else "",
+                    status="classified" if row["category"] else "pending",
+                )
+            )
+
+        return issues
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error fetching public repository issues", owner=owner, repo=repo, error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to fetch issues")
 
 
 @app.get("/api/issues", response_model=List[IssueResponse])
@@ -407,18 +506,20 @@ async def get_issues(
 
 
 @app.get("/api/issues/{issue_id}", response_model=IssueResponse)
-async def get_issue(issue_id: int):
-    """Get a specific issue by ID"""
+async def get_issue(issue_id: int, current_user: Optional[dict] = Depends(get_current_user)):
+    """Get a specific issue by ID (requires auth or public repo)"""
     try:
         conn = psycopg2.connect(DATABASE_URL)
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(
                 """
                 SELECT
-                    i.id, i.issue_number, i.title, i.body, i.repository_name, i.created_at, i.updated_at,
-                    e.category, e.priority, e.confidence_score, e.tags
+                    i.id, i.issue_number, i.title, i.body, i.repository_name, i.repository_owner, i.created_at, i.updated_at,
+                    e.category, e.priority, e.confidence_score, e.tags,
+                    r.is_public_dashboard
                 FROM dispatchai.issues i
                 LEFT JOIN dispatchai.enriched_issues e ON i.id = e.issue_id
+                LEFT JOIN dispatchai.repositories r ON r.owner = i.repository_owner AND r.name = i.repository_name
                 WHERE i.id = %s
             """,
                 (issue_id,),
@@ -430,6 +531,30 @@ async def get_issue(issue_id: int):
 
         if not row:
             raise HTTPException(status_code=404, detail="Issue not found")
+
+        is_public = row.get("is_public_dashboard", False)
+        if not is_public and not current_user:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        
+        if not is_public and current_user:
+            user_id = current_user.get("sub")
+            conn = psycopg2.connect(DATABASE_URL)
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT 1 FROM dispatchai.user_repositories ur
+                    JOIN dispatchai.repositories r ON ur.repo_id = r.id
+                    WHERE ur.user_id = %s
+                    AND r.owner = %s
+                    AND r.name = %s
+                    """,
+                    (user_id, row["repository_owner"], row["repository_name"]),
+                )
+                has_access = cur.fetchone() is not None
+            conn.close()
+            
+            if not has_access:
+                raise HTTPException(status_code=403, detail="Access denied")
 
         return IssueResponse(
             id=row["id"],
@@ -528,6 +653,94 @@ async def test_websocket():
 
     await manager.broadcast(test_message)
     return {"status": "test_message_sent", "message": test_message}
+
+
+@app.get("/api/public/repos/{owner}/{repo}/stats")
+async def get_public_repository_stats(owner: str, repo: str):
+    """Get statistics for a public repository (no auth required)"""
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT is_public_dashboard FROM dispatchai.repositories
+                WHERE owner = %s AND name = %s
+                """,
+                (owner, repo),
+            )
+            repo_row = cur.fetchone()
+            
+            if not repo_row or not repo_row["is_public_dashboard"]:
+                raise HTTPException(status_code=404, detail="Public repository not found")
+
+            cur.execute(
+                """
+                SELECT
+                    COUNT(*) as total_issues,
+                    COUNT(e.issue_id) as classified_issues,
+                    COUNT(*) - COUNT(e.issue_id) as pending_issues
+                FROM dispatchai.issues i
+                LEFT JOIN dispatchai.enriched_issues e ON i.id = e.issue_id
+                WHERE i.repository_owner = %s AND i.repository_name = %s
+            """,
+                (owner, repo),
+            )
+            counts = cur.fetchone()
+
+            cur.execute(
+                """
+                SELECT category, COUNT(*) as count
+                FROM dispatchai.enriched_issues e
+                JOIN dispatchai.issues i ON e.issue_id = i.id
+                WHERE category IS NOT NULL
+                AND i.repository_owner = %s AND i.repository_name = %s
+                GROUP BY category
+                ORDER BY count DESC
+            """,
+                (owner, repo),
+            )
+            categories = cur.fetchall()
+
+            cur.execute(
+                """
+                SELECT priority, COUNT(*) as count
+                FROM dispatchai.enriched_issues e
+                JOIN dispatchai.issues i ON e.issue_id = i.id
+                WHERE priority IS NOT NULL
+                AND i.repository_owner = %s AND i.repository_name = %s
+                GROUP BY priority
+                ORDER BY
+                    CASE priority
+                        WHEN 'critical' THEN 1
+                        WHEN 'high' THEN 2
+                        WHEN 'medium' THEN 3
+                        WHEN 'low' THEN 4
+                        ELSE 5
+                    END
+            """,
+                (owner, repo),
+            )
+            priorities = cur.fetchall()
+
+        conn.close()
+
+        return {
+            "total_issues": counts["total_issues"],
+            "classified_issues": counts["classified_issues"],
+            "pending_issues": counts["pending_issues"],
+            "categories": [
+                {"name": row["category"], "count": row["count"]} for row in categories
+            ],
+            "priorities": [
+                {"name": row["priority"], "count": row["count"]} for row in priorities
+            ],
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error fetching public repository stats", owner=owner, repo=repo, error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to fetch statistics")
 
 
 @app.get("/api/stats")
@@ -1419,12 +1632,10 @@ class RobustKafkaConsumer:
     async def _process_message(self, message):
         """Process a single Kafka message and broadcast via WebSocket"""
         try:
-            print(f"DEBUG: Processing message from {message.topic}")  # Debug print
+            print(f"DEBUG: Processing message from {message.topic}")
 
-            # Parse message
             event_data = json.loads(message.value.decode("utf-8"))
 
-            # Create WebSocket message
             websocket_message = {
                 "type": "issue_update",
                 "topic": message.topic,
@@ -1432,22 +1643,59 @@ class RobustKafkaConsumer:
                 "data": event_data,
             }
 
-            print(
-                f"DEBUG: Broadcasting to {len(self.manager.active_connections)} WebSocket clients"
-            )  # Debug print
+            # Extract repository info for filtering
+            repo_owner = None
+            repo_name = None
+            if "issue" in event_data:
+                repo_owner = event_data["issue"].get("repository_owner")
+                repo_name = event_data["issue"].get("repository_name")
+            
+            # Create filter function for user access control
+            def user_can_see_issue(user: Optional[Dict[str, Any]]) -> bool:
+                if user is None:
+                    return False
+                
+                if not repo_owner or not repo_name:
+                    return True
+                
+                user_id = user.get("sub")
+                if not user_id:
+                    return False
+                
+                try:
+                    conn = psycopg2.connect(DATABASE_URL)
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            """
+                            SELECT 1 FROM dispatchai.user_repositories ur
+                            JOIN dispatchai.repositories r ON ur.repo_id = r.id
+                            WHERE ur.user_id = %s
+                            AND r.owner = %s
+                            AND r.name = %s
+                            """,
+                            (user_id, repo_owner, repo_name),
+                        )
+                        has_access = cur.fetchone() is not None
+                    conn.close()
+                    return has_access
+                except Exception as e:
+                    logger.error("Error checking user access", error=str(e))
+                    return False
 
-            # Broadcast to all connected WebSocket clients
-            await self.manager.broadcast(json.dumps(websocket_message))
-
             print(
-                f"DEBUG: Successfully broadcasted message from {message.topic}"
-            )  # Debug print
+                f"DEBUG: Broadcasting to {len(self.manager.active_connections)} WebSocket clients with filtering"
+            )
+
+            await self.manager.broadcast(json.dumps(websocket_message), user_filter=user_can_see_issue)
+
+            print(f"DEBUG: Successfully broadcasted message from {message.topic}")
 
             logger.info(
-                "Broadcasted Kafka message to WebSocket clients",
+                "Broadcasted Kafka message to authorized WebSocket clients",
                 topic=message.topic,
                 connected_clients=len(self.manager.active_connections),
                 message_type=websocket_message["type"],
+                repository=f"{repo_owner}/{repo_name}" if repo_owner and repo_name else None,
             )
 
         except Exception as e:
