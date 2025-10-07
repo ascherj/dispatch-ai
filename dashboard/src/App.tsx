@@ -21,6 +21,16 @@ interface Issue {
   status: string
 }
 
+interface Repository {
+  id: number
+  owner: string
+  name: string
+  full_name: string
+  is_public_dashboard: boolean
+  last_synced_at?: string
+  status?: string
+}
+
 interface EditingIssue {
   id: number
   category: string
@@ -51,6 +61,11 @@ function DashboardContent() {
     return saved ? saved === 'dark' : true // Default to dark mode
   })
   const [activeTab, setActiveTab] = useState<'issues' | 'repositories'>('issues')
+  const [repositories, setRepositories] = useState<Repository[]>([])
+  const [selectedRepo, setSelectedRepo] = useState<string>('all')
+  const [sortBy, setSortBy] = useState<'date' | 'priority' | 'status'>('date')
+  const [filterCategory, setFilterCategory] = useState<string>('all')
+  const [filterPriority, setFilterPriority] = useState<string>('all')
 
   // Utility function for authenticated API calls
   const authenticatedFetch = useCallback(async (url: string, options: RequestInit = {}) => {
@@ -219,6 +234,17 @@ function DashboardContent() {
       })
       .then(data => setStats(data))
       .catch(error => console.error('Error fetching stats:', error))
+
+    // Fetch user repositories
+    authenticatedFetch(`${apiUrl}/auth/user/repositories`)
+      .then(res => {
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}: ${res.statusText}`)
+        }
+        return res.json()
+      })
+      .then(data => setRepositories(data))
+      .catch(error => console.error('Error fetching repositories:', error))
   }, [isAuthenticated, token, authenticatedFetch])
 
   // Theme persistence effect
@@ -456,9 +482,119 @@ function DashboardContent() {
         <RepositoryManager />
       ) : (
         <div className="issues-container">
-          <h2>Recent Issues</h2>
-          <div className="issues-list">
-            {issues.map(issue => (
+          <div className="issues-header">
+            <h2>Recent Issues</h2>
+            <div className="filters-group">
+              <div className="filter-item">
+                <label htmlFor="repo-filter">Repository:</label>
+                <select
+                  id="repo-filter"
+                  value={selectedRepo}
+                  onChange={(e) => setSelectedRepo(e.target.value)}
+                  className="filter-select"
+                >
+                  <option value="all">All Repositories</option>
+                  {repositories.map(repo => (
+                    <option key={repo.id} value={repo.full_name}>
+                      {repo.full_name}
+                      {repo.is_public_dashboard && ' 🌐'}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              
+              <div className="filter-item">
+                <label htmlFor="category-filter">Category:</label>
+                <select
+                  id="category-filter"
+                  value={filterCategory}
+                  onChange={(e) => setFilterCategory(e.target.value)}
+                  className="filter-select"
+                >
+                  <option value="all">All Categories</option>
+                  <option value="bug">Bug</option>
+                  <option value="feature">Feature</option>
+                  <option value="enhancement">Enhancement</option>
+                  <option value="documentation">Documentation</option>
+                  <option value="question">Question</option>
+                </select>
+              </div>
+              
+              <div className="filter-item">
+                <label htmlFor="priority-filter">Priority:</label>
+                <select
+                  id="priority-filter"
+                  value={filterPriority}
+                  onChange={(e) => setFilterPriority(e.target.value)}
+                  className="filter-select"
+                >
+                  <option value="all">All Priorities</option>
+                  <option value="critical">Critical</option>
+                  <option value="high">High</option>
+                  <option value="medium">Medium</option>
+                  <option value="low">Low</option>
+                </select>
+              </div>
+              
+              <div className="filter-item">
+                <label htmlFor="sort-by">Sort By:</label>
+                <select
+                  id="sort-by"
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as 'date' | 'priority' | 'status')}
+                  className="filter-select"
+                >
+                  <option value="date">Date (Newest)</option>
+                  <option value="priority">Priority</option>
+                  <option value="status">Status</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          {(() => {
+            let filteredIssues = issues.filter(issue => {
+              const repoMatch = selectedRepo === 'all' || issue.repository === selectedRepo.split('/')[1]
+              const categoryMatch = filterCategory === 'all' || issue.category === filterCategory
+              const priorityMatch = filterPriority === 'all' || issue.priority === filterPriority
+              return repoMatch && categoryMatch && priorityMatch
+            })
+            
+            filteredIssues = [...filteredIssues].sort((a, b) => {
+              if (sortBy === 'date') {
+                return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+              } else if (sortBy === 'priority') {
+                const priorityOrder = { critical: 0, high: 1, medium: 2, low: 3 }
+                const aPriority = priorityOrder[a.priority as keyof typeof priorityOrder] ?? 999
+                const bPriority = priorityOrder[b.priority as keyof typeof priorityOrder] ?? 999
+                return aPriority - bPriority
+              } else if (sortBy === 'status') {
+                const statusOrder = { pending: 0, classified: 1 }
+                const aStatus = statusOrder[a.status as keyof typeof statusOrder] ?? 999
+                const bStatus = statusOrder[b.status as keyof typeof statusOrder] ?? 999
+                return aStatus - bStatus
+              }
+              return 0
+            })
+            
+            if (selectedRepo === 'all') {
+              const groupedByRepo = filteredIssues.reduce((acc, issue) => {
+                const repoName = issue.repository
+                if (!acc[repoName]) acc[repoName] = []
+                acc[repoName].push(issue)
+                return acc
+              }, {} as Record<string, Issue[]>)
+              
+              return Object.entries(groupedByRepo).map(([repoName, repoIssues]) => {
+                const repo = repositories.find(r => r.name === repoName)
+                return (
+                  <div key={repoName} className="repository-section">
+                    <h3 className="repository-section-header">
+                      {repo?.full_name || repoName}
+                      {repo?.is_public_dashboard && <span className="repo-badge-header">🌐 Public</span>}
+                      <span className="issue-count-badge">{repoIssues.length}</span>
+                    </h3>
+                    <div className="issues-list">
+                      {repoIssues.map(issue => (
             <div key={issue.id} className="issue-card">
               <div className="issue-header">
                 <span className="issue-number">#{issue.number}</span>
@@ -473,7 +609,12 @@ function DashboardContent() {
               <h3 className="issue-title">{issue.title}</h3>
 
               <div className="issue-meta">
-                <span className="repository">{issue.repository}</span>
+                <span className="repository">
+                  {issue.repository}
+                  {repositories.find(r => r.name === issue.repository)?.is_public_dashboard && (
+                    <span className="repo-badge" title="Public Dashboard">🌐</span>
+                  )}
+                </span>
                 {issue.category && (
                   <span className="category-badge">{issue.category}</span>
                 )}
@@ -579,7 +720,143 @@ function DashboardContent() {
               )}
             </div>
           ))}
-          </div>
+                    </div>
+                  </div>
+                )
+              })
+            } else {
+              return (
+                <div className="issues-list">
+                  {filteredIssues.map(issue => (
+            <div key={issue.id} className="issue-card">
+              <div className="issue-header">
+                <span className="issue-number">#{issue.number}</span>
+                <span
+                  className="status-badge"
+                  style={{ backgroundColor: getStatusColor(issue.status) }}
+                >
+                  {issue.status}
+                </span>
+              </div>
+
+              <h3 className="issue-title">{issue.title}</h3>
+
+              <div className="issue-meta">
+                <span className="repository">
+                  {issue.repository}
+                  {repositories.find(r => r.name === issue.repository)?.is_public_dashboard && (
+                    <span className="repo-badge" title="Public Dashboard">🌐</span>
+                  )}
+                </span>
+                {issue.category && (
+                  <span className="category-badge">{issue.category}</span>
+                )}
+                {issue.priority && (
+                  <span
+                    className="priority-badge"
+                    style={{ backgroundColor: getPriorityColor(issue.priority) }}
+                  >
+                    {issue.priority}
+                  </span>
+                )}
+              </div>
+
+              {issue.tags.length > 0 && (
+                <div className="tags">
+                  {issue.tags.map(tag => (
+                    <span key={tag} className="tag">{tag}</span>
+                  ))}
+                </div>
+              )}
+
+              {issue.confidence && (
+                <div className="confidence">
+                  Confidence: {Math.round(issue.confidence * 100)}%
+                </div>
+              )}
+
+              <div className="issue-actions">
+                <button
+                  onClick={() => triggerClassification(issue.id)}
+                  className="classify-btn"
+                  disabled={issue.status === 'classified' || editingIssue?.id === issue.id}
+                >
+                  {issue.status === 'classified' ? 'Classified' : 'Classify'}
+                </button>
+                {editingIssue?.id === issue.id ? (
+                  <div className="editing-controls">
+                    <button
+                      onClick={saveCorrection}
+                      className="save-btn"
+                      disabled={isSubmitting}
+                    >
+                      {isSubmitting ? 'Saving...' : 'Save'}
+                    </button>
+                    <button
+                      onClick={cancelEditing}
+                      className="cancel-btn"
+                      disabled={isSubmitting}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => startEditing(issue)}
+                    className="edit-btn"
+                  >
+                    Edit
+                  </button>
+                )}
+              </div>
+
+              {editingIssue?.id === issue.id && (
+                <div className="editing-form">
+                  <div className="form-group">
+                    <label>Category:</label>
+                    <select
+                      value={editingIssue.category}
+                      onChange={(e) => setEditingIssue({ ...editingIssue, category: e.target.value })}
+                    >
+                      <option value="">Select category...</option>
+                      <option value="bug">Bug</option>
+                      <option value="feature">Feature</option>
+                      <option value="enhancement">Enhancement</option>
+                      <option value="documentation">Documentation</option>
+                      <option value="question">Question</option>
+                      <option value="duplicate">Duplicate</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label>Priority:</label>
+                    <select
+                      value={editingIssue.priority}
+                      onChange={(e) => setEditingIssue({ ...editingIssue, priority: e.target.value })}
+                    >
+                      <option value="">Select priority...</option>
+                      <option value="critical">Critical</option>
+                      <option value="high">High</option>
+                      <option value="medium">Medium</option>
+                      <option value="low">Low</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label>Tags (comma-separated):</label>
+                    <input
+                      type="text"
+                      value={editingIssue.tags}
+                      onChange={(e) => setEditingIssue({ ...editingIssue, tags: e.target.value })}
+                      placeholder="frontend, ui, urgent"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+                </div>
+              )
+            }
+          })()}
         </div>
       )}
     </div>
