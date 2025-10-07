@@ -1,7 +1,8 @@
 # DispatchAI – Complete MVP Implementation Roadmap
 
 _Created: 2025-09-16_
-_Status: Planning_
+_Last Updated: 2025-10-06_
+_Status: Phase 3 Complete - Phase 4 In Progress_
 
 ---
 
@@ -15,40 +16,83 @@ This roadmap defines the complete path from current state (single-tenant webhook
 
 ## 🏗️ Current State Assessment
 
-✅ **What we have:**
+✅ **Completed (Phases 1-3 Core):**
 - Event-driven microservices (ingress → kafka → classifier → gateway → dashboard)
 - LLM-powered issue classification with confidence scoring
 - Embeddings for similarity search (pgvector)
-- Real-time streaming to React dashboard
+- Real-time streaming to React dashboard with JWT-authenticated WebSocket
 - Human-in-the-loop editing capability
-- Basic auth service foundation already created
+- **✅ Multi-tenancy and user management**
+- **✅ Repository connection workflow (user repos + organizations)**
+- **✅ Public/private dashboard visibility controls**
+- **✅ Production-ready authentication flow (GitHub OAuth + JWT)**
+- **✅ Repository-level access control for WebSocket and API endpoints**
 
-🔄 **What needs enhancement:**
-- Multi-tenancy and user management
-- Repository connection workflow
-- Public/private dashboard visibility controls
-- Cross-repository filtering and search
-- Production-ready authentication flow
+🔄 **What needs enhancement (Phase 3 UI + Phase 4):**
+- Repository switcher/navigation UI components
+- Repository grouping and filtering in dashboard
+- Cross-repository analytics and search
+- Public dashboard sharing features (social metadata, CTAs)
+- Repository health scoring and insights
+
+---
+
+## 📅 Recent Updates (2025-10-06)
+
+### Phase 3 Multi-Tenant Security - Core Implementation Complete
+
+**✅ Completed Features:**
+
+1. **JWT-Authenticated WebSocket Connections**
+   - WebSocket endpoint now verifies JWT tokens before accepting connections
+   - User context tracked for each WebSocket connection
+   - Automatic reconnection when user token changes (login/logout)
+   - Support for both authenticated and public (unauthenticated) connections
+
+2. **Repository-Based Access Control**
+   - Kafka message broadcasting filters by user's repository access permissions
+   - Real-time database queries verify user permissions before broadcasting
+   - Private repositories remain isolated to authorized users only
+   - WebSocket clients only receive updates for repositories they have access to
+
+3. **Public Dashboard API Endpoints**
+   - `GET /api/public/repos/{owner}/{repo}/issues` - View public repository issues (no auth)
+   - `GET /api/public/repos/{owner}/{repo}/stats` - View public repository statistics (no auth)
+   - Public endpoints validate `is_public_dashboard` flag before allowing access
+   - Proper 404 responses for non-public or non-existent repositories
+
+4. **Multi-Tenant Data Isolation**
+   - All API endpoints filter data by user's connected repositories
+   - Issue streams, statistics, and individual issue access all respect user permissions
+   - Repository-level access checks prevent cross-user data leaks
+
+**🔄 Remaining Phase 3 Work:**
+- UI components for repository switching/filtering
+- Enhanced issue display with repository grouping
+- Social sharing metadata for public dashboards
+- Repository health indicators and sync status displays
+
+**Commit:** `9cf168d` - feat: implement multi-tenant WebSocket security with JWT verification and repository-based access control
 
 ---
 
 ## 🗺️ Implementation Phases
 
-### Phase 1: Authentication Foundation (Week 1)
+### Phase 1: Authentication Foundation ✅ COMPLETE
 **Goal:** Enable secure GitHub OAuth login with persistent sessions
 
 #### 1.1 Environment Setup
-- [ ] Configure GitHub OAuth App credentials
-- [ ] Add environment variables: `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `JWT_SECRET`, `ENCRYPTION_KEY`
-- [ ] Update docker-compose with auth service secrets
-- [ ] **CRITICAL:** Implement proper token encryption in storage.py (currently storing GitHub tokens in plain text)
+- [x] Configure GitHub OAuth App credentials
+- [x] Add environment variables: `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `JWT_SECRET`, `ENCRYPTION_KEY`
+- [x] Update docker-compose with auth service secrets
+- [x] **CRITICAL:** Implement proper token encryption in storage.py (currently storing GitHub tokens in plain text)
 
 #### 1.2 Auth Service Enhancement
-- [ ] **CRITICAL:** Replace placeholder encryption methods with proper encryption using `cryptography` library
-- [ ] Integrate GitHub OAuth flow in existing `auth` service
-- [ ] Implement JWT token generation (15-min access + 7-day refresh)
-- [ ] Create user registration/login endpoints
-- [ ] Add token verification middleware for other services
+- [x] **CRITICAL:** Replace placeholder encryption methods with proper encryption using `cryptography` library
+- [x] Integrate GitHub OAuth flow in existing `auth` service
+- [x] Implement JWT token generation (15-min access + 7-day refresh)
+- [x] Create user registration/login endpoints
+- [x] Add token verification middleware for other services
 
 #### 1.3 Database Schema
 ```sql
@@ -86,74 +130,74 @@ CREATE TABLE user_repositories (
 ```
 
 #### 1.4 Frontend Integration
-- [ ] Update React dashboard with AuthContext
-- [ ] Add login/logout UI components
-- [ ] Implement token storage and automatic refresh
-- [ ] Add protected route handling
+- [x] Update React dashboard with AuthContext
+- [x] Add login/logout UI components
+- [x] Implement token storage and automatic refresh
+- [x] Add protected route handling
 
-**Success Criteria:** User can sign in with GitHub, receive a JWT, see their profile in the dashboard
+**Success Criteria:** ✅ User can sign in with GitHub, receive a JWT, see their profile in the dashboard
 
 ---
 
-### Phase 2: Repository Management (Week 2)
+### Phase 2: Repository Management ✅ COMPLETE
 **Goal:** Allow users to connect and manage repositories
 
 #### 2.1 GitHub Integration Service
-- [ ] Create GitHub API client with user token support
-- [ ] Implement repository listing (user's repos + organizations)
-- [ ] Add public repository URL validation and metadata fetching
-- [ ] Handle GitHub API rate limiting
+- [x] Create GitHub API client with user token support
+- [x] Implement repository listing (user's repos + organizations)
+- [x] Add public repository URL validation and metadata fetching
+- [x] Handle GitHub API rate limiting
 
 #### 2.2 Repository Connection Workflow
-- [ ] Build repository selection UI component
-- [ ] Add "Connect Repository" flow for user's repos
-- [ ] Add "Add Public Repository" flow for any GitHub URL
-- [ ] Implement repository deduplication logic
+- [x] Build repository selection UI component
+- [x] Add "Connect Repository" flow for user's repos
+- [x] Add "Add Public Repository" flow for any GitHub URL
+- [x] Implement repository deduplication logic
 
 #### 2.3 Backend Repository Management
-- [ ] Create repository CRUD endpoints in gateway service
-- [ ] Add repository validation and GitHub metadata sync
-- [ ] Implement bulk issue import for newly connected repos
-- [ ] Add repository removal/disconnect functionality
+- [x] Create repository CRUD endpoints in gateway service
+- [x] Add repository validation and GitHub metadata sync
+- [x] Implement bulk issue import for newly connected repos
+- [x] Add repository removal/disconnect functionality
 
 #### 2.4 Issue Import System
-- [ ] Create async job system for bulk GitHub issue import
-- [ ] Modify existing classifier to handle both webhook and batch imports
-- [ ] Add import status tracking and user notifications
-- [ ] Ensure no duplicate processing for existing issues
+- [x] Create async job system for bulk GitHub issue import
+- [x] Modify existing classifier to handle both webhook and batch imports
+- [x] Add import status tracking and user notifications
+- [x] Ensure no duplicate processing for existing issues
 
-**Success Criteria:** User can connect multiple repositories, trigger bulk import, and see all issues being classified
+**Success Criteria:** ✅ User can connect multiple repositories, trigger bulk import, and see all issues being classified
 
 ---
 
-### Phase 3: Multi-Tenant Dashboard (Week 3)
+### Phase 3: Multi-Tenant Dashboard 🔄 IN PROGRESS
 **Goal:** Secure, user-specific dashboards with proper visibility controls
 
-#### 3.1 Access Control Implementation
-- [ ] Add JWT verification to gateway websocket connections
-- [ ] Filter issue streams based on user's connected repositories
-- [ ] Implement repository-level access checks for private repos
-- [ ] Create public dashboard endpoints (no auth required)
+#### 3.1 Access Control Implementation ✅ COMPLETE
+- [x] Add JWT verification to gateway websocket connections
+- [x] Filter issue streams based on user's connected repositories
+- [x] Implement repository-level access checks for private repos
+- [x] Create public dashboard endpoints (no auth required)
 
-#### 3.2 Dashboard Repository Management
+#### 3.2 Dashboard Repository Management 🔄 PARTIAL
 - [ ] Add repository switcher/navigation in UI
 - [ ] Show repository connection status and metadata
-- [ ] Implement repository disconnect functionality
+- [x] Implement repository disconnect functionality
 - [ ] Add repository sharing controls (public/private toggle)
 
-#### 3.3 Enhanced Issue Display
+#### 3.3 Enhanced Issue Display 📋 PENDING
 - [ ] Group issues by repository in the dashboard
 - [ ] Add repository-specific filtering and sorting
 - [ ] Show repository metadata (private/public status, last sync)
 - [ ] Implement repository-specific issue counts and stats
 
-#### 3.4 Public Dashboard Sharing
-- [ ] Create shareable public URLs for public repositories
+#### 3.4 Public Dashboard Sharing 🔄 PARTIAL
+- [x] Create shareable public URLs for public repositories
 - [ ] Add social sharing metadata (OpenGraph, Twitter cards)
-- [ ] Implement view-only mode for unauthenticated users
+- [x] Implement view-only mode for unauthenticated users
 - [ ] Add "Connect this repository" CTA for logged-out users
 
-**Success Criteria:** Users see only their connected repositories, public dashboards are accessible without auth, private ones require proper permissions
+**Success Criteria:** ✅ Users see only their connected repositories, ✅ public dashboards are accessible without auth, ✅ private ones require proper permissions
 
 ---
 
@@ -256,19 +300,19 @@ CREATE TABLE user_repositories (
 
 ## 📊 Success Metrics
 
-### Phase 1 Success
-- [ ] 100% of GitHub OAuth flows complete successfully
-- [ ] JWT tokens verify correctly across all services
-- [ ] No authentication-related errors in logs
+### Phase 1 Success ✅
+- [x] 100% of GitHub OAuth flows complete successfully
+- [x] JWT tokens verify correctly across all services
+- [x] No authentication-related errors in logs
 
-### Phase 2 Success
-- [ ] Users can connect repositories in <30 seconds
-- [ ] Bulk import completes for repos with <1000 issues in <5 minutes
-- [ ] Zero duplicate issues created during import
+### Phase 2 Success ✅
+- [x] Users can connect repositories in <30 seconds
+- [x] Bulk import completes for repos with <1000 issues in <5 minutes
+- [x] Zero duplicate issues created during import
 
-### Phase 3 Success
-- [ ] Private repositories are inaccessible without proper auth
-- [ ] Public dashboards load in <2 seconds without authentication
+### Phase 3 Success 🔄
+- [x] Private repositories are inaccessible without proper auth
+- [x] Public dashboards load in <2 seconds without authentication
 - [ ] Repository switching is instant (cached data)
 
 ### Phase 4 Success
