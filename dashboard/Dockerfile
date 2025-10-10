@@ -6,10 +6,12 @@ WORKDIR /app
 # Accept build arguments for environment variables
 ARG VITE_API_URL
 ARG VITE_WS_URL
+ARG VITE_AUTH_URL
 
 # Set environment variables for Vite build
 ENV VITE_API_URL=$VITE_API_URL
 ENV VITE_WS_URL=$VITE_WS_URL
+ENV VITE_AUTH_URL=$VITE_AUTH_URL
 
 # Copy package files first for better caching
 COPY package*.json ./

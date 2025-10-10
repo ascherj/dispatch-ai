@@ -104,6 +104,34 @@ services:
       timeout: 10s
       retries: 3
 
+  # Auth Service - GitHub OAuth authentication
+  auth:
+    build:
+      context: ./auth
+      dockerfile: Dockerfile
+    container_name: dispatchai-auth-prod
+    environment:
+      PORT: 8003
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-secure_password_change_me}@postgres:5432/dispatchai
+      POSTGRES_URL: postgresql://postgres:${POSTGRES_PASSWORD:-secure_password_change_me}@postgres:5432/dispatchai
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET}
+      GITHUB_REDIRECT_URI: ${GITHUB_REDIRECT_URI:-http://localhost:3000/auth/callback}
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://5.78.157.202,http://5.78.157.202:3000,http://localhost:3000}
+    ports:
+      - "8003:8003"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   # Gateway Service - WebSocket and REST API
   gateway:
     build:
@@ -116,8 +144,10 @@ services:
       POSTGRES_URL: postgresql://postgres:${POSTGRES_PASSWORD:-secure_password_change_me}@postgres:5432/dispatchai
       KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
       CLASSIFIER_SERVICE_URL: http://classifier:8001
+      AUTH_SERVICE_URL: http://auth:8003
       DASHBOARD_URL: ${API_URL:-http://localhost:3000}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://5.78.157.202,http://5.78.157.202:3000,http://localhost:3000}
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production}
     ports:
       - "8002:8002"
     depends_on:
@@ -126,6 +156,8 @@ services:
       redpanda:
         condition: service_healthy
       classifier:
+        condition: service_healthy
+      auth:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
@@ -142,6 +174,7 @@ services:
       args:
         VITE_API_URL: ${API_URL:-http://localhost:8002}
         VITE_WS_URL: ${WS_URL:-ws://localhost:8002/ws}
+        VITE_AUTH_URL: ${AUTH_URL:-http://localhost:8003}
     container_name: dispatchai-dashboard-prod
     environment:
       PORT: 3000
@@ -149,6 +182,8 @@ services:
       - "3000:80"
     depends_on:
       gateway:
+        condition: service_healthy
+      auth:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:

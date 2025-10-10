@@ -70,7 +70,7 @@ const AuthCallback: React.FC = () => {
     };
 
     handleCallback();
-  }, [login, isProcessing]);
+  }, [login]); // Removed isProcessing from dependencies to prevent infinite loop
 
   if (isLoading) {
     return (
