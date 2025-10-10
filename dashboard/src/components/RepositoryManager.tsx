@@ -71,7 +71,7 @@ const RepositoryManager: React.FC = () => {
     setError(null);
 
     try {
-      const gatewayUrl = import.meta.env.VITE_GATEWAY_URL || 'http://localhost:8002';
+      const gatewayUrl = import.meta.env.VITE_API_URL || 'http://localhost:8002';
       const response = await fetch(`${gatewayUrl}/api/organizations`, {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -99,7 +99,7 @@ const RepositoryManager: React.FC = () => {
     setError(null);
 
     try {
-      const gatewayUrl = import.meta.env.VITE_GATEWAY_URL || 'http://localhost:8002';
+      const gatewayUrl = import.meta.env.VITE_API_URL || 'http://localhost:8002';
       const response = await fetch(`${gatewayUrl}/api/organizations/${orgLogin}/repositories`, {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -201,7 +201,7 @@ const RepositoryManager: React.FC = () => {
     setError(null);
 
     try {
-      const gatewayUrl = import.meta.env.VITE_GATEWAY_URL || 'http://localhost:8002';
+      const gatewayUrl = import.meta.env.VITE_API_URL || 'http://localhost:8002';
       const response = await fetch(`${gatewayUrl}/api/repos/connect`, {
         method: 'POST',
         headers: {
@@ -249,7 +249,7 @@ const RepositoryManager: React.FC = () => {
     setError(null);
 
     try {
-      const gatewayUrl = import.meta.env.VITE_GATEWAY_URL || 'http://localhost:8002';
+      const gatewayUrl = import.meta.env.VITE_API_URL || 'http://localhost:8002';
       const response = await fetch(`${gatewayUrl}/api/repos/${repo.owner}/${repo.name}`, {
         method: 'DELETE',
         headers: {
