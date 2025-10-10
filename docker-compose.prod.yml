@@ -6,10 +6,9 @@ services:
     environment:
       POSTGRES_DB: dispatchai
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secure_password_change_me}
-      POSTGRES_HOST_AUTH_METHOD: trust
-    ports:
-      - "5432:5432"
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    expose:
+      - 5432
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./infra/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
@@ -40,7 +39,7 @@ services:
       - --default-log-level=info
     ports:
       - "18081:18081" # Schema Registry
-      - "18082:18082" # REST Proxy  
+      - "18082:18082" # REST Proxy
       - "19092:19092" # Kafka API
     volumes:
       - redpanda_data:/var/lib/redpanda/data
@@ -59,8 +58,8 @@ services:
     container_name: dispatchai-ingress-prod
     environment:
       PORT: 8000
-      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-secure_password_change_me}@postgres:5432/dispatchai
-      POSTGRES_URL: postgresql://postgres:${POSTGRES_PASSWORD:-secure_password_change_me}@postgres:5432/dispatchai
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/dispatchai
+      POSTGRES_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/dispatchai
       KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
     ports:
@@ -85,8 +84,8 @@ services:
     container_name: dispatchai-classifier-prod
     environment:
       PORT: 8001
-      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-secure_password_change_me}@postgres:5432/dispatchai
-      POSTGRES_URL: postgresql://postgres:${POSTGRES_PASSWORD:-secure_password_change_me}@postgres:5432/dispatchai
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/dispatchai
+      POSTGRES_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/dispatchai
       KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -112,8 +111,8 @@ services:
     container_name: dispatchai-auth-prod
     environment:
       PORT: 8003
-      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-secure_password_change_me}@postgres:5432/dispatchai
-      POSTGRES_URL: postgresql://postgres:${POSTGRES_PASSWORD:-secure_password_change_me}@postgres:5432/dispatchai
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/dispatchai
+      POSTGRES_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/dispatchai
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID}
       GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET}
       GITHUB_REDIRECT_URI: ${GITHUB_REDIRECT_URI:-http://localhost:3000/auth/callback}
@@ -140,8 +139,8 @@ services:
     container_name: dispatchai-gateway-prod
     environment:
       PORT: 8002
-      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-secure_password_change_me}@postgres:5432/dispatchai
-      POSTGRES_URL: postgresql://postgres:${POSTGRES_PASSWORD:-secure_password_change_me}@postgres:5432/dispatchai
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/dispatchai
+      POSTGRES_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/dispatchai
       KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
       CLASSIFIER_SERVICE_URL: http://classifier:8001
       AUTH_SERVICE_URL: http://auth:8003
