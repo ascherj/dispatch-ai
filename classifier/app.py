@@ -482,7 +482,7 @@ async def store_enriched_issue(
 
             internal_issue_id = result[0]
 
-            # Store enriched data (use upsert since there's no unique constraint on issue_id)
+            # Store enriched data with upsert to ensure idempotency
             cur.execute(
                 """
                 INSERT INTO dispatchai.enriched_issues (
@@ -491,6 +491,23 @@ async def store_enriched_issue(
                     embedding, confidence_score, processing_model, ai_reasoning
                 )
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (issue_id)
+                DO UPDATE SET
+                    classification = EXCLUDED.classification,
+                    summary = EXCLUDED.summary,
+                    tags = EXCLUDED.tags,
+                    suggested_assignees = EXCLUDED.suggested_assignees,
+                    estimated_effort = EXCLUDED.estimated_effort,
+                    category = EXCLUDED.category,
+                    priority = EXCLUDED.priority,
+                    severity = EXCLUDED.severity,
+                    component = EXCLUDED.component,
+                    sentiment = EXCLUDED.sentiment,
+                    embedding = EXCLUDED.embedding,
+                    confidence_score = EXCLUDED.confidence_score,
+                    processing_model = EXCLUDED.processing_model,
+                    ai_reasoning = EXCLUDED.ai_reasoning,
+                    updated_at = CURRENT_TIMESTAMP
             """,
                 (
                     internal_issue_id,

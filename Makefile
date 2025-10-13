@@ -314,6 +314,23 @@ db-backup: ## Backup the database
 	docker exec dispatchai-postgres pg_dump -U postgres dispatchai > backup_$(shell date +%Y%m%d_%H%M%S).sql
 	@echo "Backup created: backup_$(shell date +%Y%m%d_%H%M%S).sql"
 
+migrate: ## Run database migrations
+	@echo "Running database migrations..."
+	@for migration in infra/migrations/*.sql; do \
+		echo "Applying migration: $$migration"; \
+		docker exec -i dispatchai-postgres psql -U postgres -d dispatchai < $$migration; \
+	done
+	@echo "✅ All migrations applied successfully"
+
+migrate-file: ## Run specific migration file (usage: make migrate-file FILE=001_add_unique_issue_id_constraint.sql)
+	@if [ -z "$(FILE)" ]; then \
+		echo "❌ Usage: make migrate-file FILE=001_add_unique_issue_id_constraint.sql"; \
+		exit 1; \
+	fi
+	@echo "Applying migration: infra/migrations/$(FILE)"
+	@docker exec -i dispatchai-postgres psql -U postgres -d dispatchai < infra/migrations/$(FILE)
+	@echo "✅ Migration applied successfully"
+
 # Kafka/Redpanda Management
 kafka-topics: ## List Kafka topics
 	docker exec dispatchai-redpanda rpk topic list

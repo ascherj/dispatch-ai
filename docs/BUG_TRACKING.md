@@ -13,46 +13,6 @@ This document tracks all bugs encountered during development, their root causes,
 
 ## Active Bugs
 
-### BUG-014: Dev JWT Authentication Filtering Issues
-- **Symptom**: `send_webhook.sh` test script successfully sends webhooks and issues are classified/stored in database, but API calls return empty arrays `[]` even though issues exist
-- **Root Cause**: Gateway `/api/issues` and `/api/stats` endpoints filter results by user's connected repositories. Dev JWT uses `sub: '0'` with `dev_mode: true` but has no repository connections in database, causing all queries to return empty despite issues existing
-- **Resolution**: Modified Gateway to detect `dev_mode: true` in JWT payload and skip repository filtering for development testing
-- **Status**: ✅ Fixed
-- **Impact**: High - End-to-end testing completely broken
-- **Date**: October 13, 2025
-- **Fix Applied**:
-  - Updated `gateway/app.py` `/api/issues` endpoint (lines 499-530) to check `current_user.get("dev_mode")` and skip repository access filtering when true
-  - Updated `gateway/app.py` `/api/stats` endpoint (lines 834-916) to check `dev_mode` and return statistics for all issues without filtering
-  - Changed WHERE clause from hardcoded user repository check to conditional: `"1=1"` when dev_mode, else user repository filtering
-  - Created `scripts/requirements.txt` with `python-jose[cryptography]` dependency for JWT generation in test scripts
-- **Prevention**: 
-  - Document dev JWT requirements in testing documentation
-  - Add dev mode checks to all endpoints that filter by user access
-  - Include integration tests that verify dev JWT bypasses access controls
-- **Verification**:
-  ```bash
-  # Install test script dependencies
-  pip install -r requirements.txt
-  
-  # Test full webhook pipeline with dev JWT
-  ./scripts/send_webhook.sh
-  # Should show:
-  # ✅ Webhook accepted
-  # ✅ Issue found in API
-  # ✅ AI classification triggered
-  # ✅ Full pipeline completed
-  
-  # Verify issue appears in API
-  python3 -c "from jose import jwt; import time; print(jwt.encode({'sub':'0','username':'dev_user','dev_mode':True,'exp':int(time.time())+3600}, 'dev-jwt-secret-change-in-production-to-secure-random-key', algorithm='HS256'))" | xargs -I {} curl -H "Authorization: Bearer {}" http://localhost:8002/api/issues | jq length
-  # Should return count > 0
-  ```
-- **Technical Details**: 
-  - Dev JWT payload: `{'sub': '0', 'username': 'dev_user', 'dev_mode': True, 'exp': timestamp}`
-  - JWT secret: `dev-jwt-secret-change-in-production-to-secure-random-key` (hardcoded in both script and Gateway)
-  - User ID `0` doesn't exist in `dispatchai.users` table and has no entries in `dispatchai.user_repositories`
-  - Production JWTs from auth service don't include `dev_mode` field, maintaining proper access controls
-  - Gateway checks `is_dev_mode = current_user.get("dev_mode", False)` defaulting to False for security
-
 ### BUG-003: Vector Similarity Search Type Error
 - **Symptom**: `operator does not exist: vector <-> numeric[]`
 - **Root Cause**: Embedding data type mismatch in similarity search queries
@@ -68,6 +28,95 @@ This document tracks all bugs encountered during development, their root causes,
 ---
 
 ## Resolved Bugs
+
+### BUG-015: Duplicate Enriched Issues After Repository Resync
+- **Symptom**: When resyncing issues from connected repositories, duplicate issue cards appear in the frontend. Each resync creates additional enriched records for the same issues.
+- **Root Cause**:
+  1. `enriched_issues` table had no unique constraint on `issue_id`, allowing multiple enriched records per issue
+  2. Classifier's `store_enriched_issue()` function used simple INSERT without `ON CONFLICT` handling
+  3. Auth service republished ALL issues to Kafka during resync, even if already enriched
+- **Resolution**:
+  1. Added `UNIQUE NOT NULL` constraint to `enriched_issues.issue_id` in schema
+  2. Updated classifier to use UPSERT pattern with `ON CONFLICT (issue_id) DO UPDATE`
+  3. Created migration script to remove existing duplicates and add constraint
+- **Status**: ✅ Fixed
+- **Impact**: High - 65 out of 97 issues had duplicates, with 2 issues enriched 3 times each (67 total duplicate records)
+- **Date**: October 13, 2025
+- **Fix Applied**:
+  - Updated `infra/init-db.sql` line 38: Added `UNIQUE NOT NULL` to `issue_id BIGINT` column definition
+  - Updated `classifier/app.py` lines 486-512: Added `ON CONFLICT (issue_id) DO UPDATE SET` with all classification fields
+  - Created `infra/migrations/001_add_unique_issue_id_constraint.sql` migration that:
+    - Removes duplicate enriched_issues keeping most recent by `processed_at`
+    - Adds `enriched_issues_issue_id_unique` constraint
+    - Verifies constraint was successfully added
+  - Added `migrate` and `migrate-file` targets to Makefile for migration management
+  - Restarted classifier service to apply code changes
+- **Prevention**:
+  - Always use UPSERT patterns for data that should be idempotent
+  - Add unique constraints at database level to enforce data integrity
+  - Test resync operations to ensure idempotency
+  - Consider optimizing to skip Kafka publishing for already-enriched issues
+- **Verification**:
+  ```bash
+  # Apply migration
+  make migrate-file FILE=001_add_unique_issue_id_constraint.sql
+
+  # Check for duplicates (should return 0 rows)
+  make db-query SQL="SELECT issue_id, COUNT(*) as count FROM dispatchai.enriched_issues GROUP BY issue_id HAVING COUNT(*) > 1;"
+
+  # Verify unique constraint exists
+  make db-query SQL="SELECT constraint_name FROM information_schema.table_constraints WHERE table_schema = 'dispatchai' AND table_name = 'enriched_issues' AND constraint_type = 'UNIQUE';"
+
+  # Test resync - connect repository and sync twice
+  # Frontend should show each issue exactly once
+  ```
+- **Technical Details**:
+  - Before fix: 65 issues with duplicates (67 duplicate records total)
+  - After fix: 1:1 relationship between issues and enriched_issues (97:97)
+  - Migration deleted 67 duplicate records, keeping most recent
+  - UPSERT updates classification fields: `classification`, `summary`, `tags`, `priority`, `category`, `severity`, `component`, `sentiment`, `embedding`, `confidence_score`, `processing_model`, `ai_reasoning`, `updated_at`
+  - Database constraint prevents duplicates at insert time
+  - Classifier now handles reprocessing by updating existing enriched record
+
+### BUG-014: Dev JWT Authentication Filtering Issues
+- **Symptom**: `send_webhook.sh` test script successfully sends webhooks and issues are classified/stored in database, but API calls return empty arrays `[]` even though issues exist
+- **Root Cause**: Gateway `/api/issues` and `/api/stats` endpoints filter results by user's connected repositories. Dev JWT uses `sub: '0'` with `dev_mode: true` but has no repository connections in database, causing all queries to return empty despite issues existing
+- **Resolution**: Modified Gateway to detect `dev_mode: true` in JWT payload and skip repository filtering for development testing
+- **Status**: ✅ Fixed
+- **Impact**: High - End-to-end testing completely broken
+- **Date**: October 13, 2025
+- **Fix Applied**:
+  - Updated `gateway/app.py` `/api/issues` endpoint (lines 499-530) to check `current_user.get("dev_mode")` and skip repository access filtering when true
+  - Updated `gateway/app.py` `/api/stats` endpoint (lines 834-916) to check `dev_mode` and return statistics for all issues without filtering
+  - Changed WHERE clause from hardcoded user repository check to conditional: `"1=1"` when dev_mode, else user repository filtering
+  - Created `scripts/requirements.txt` with `python-jose[cryptography]` dependency for JWT generation in test scripts
+- **Prevention**:
+  - Document dev JWT requirements in testing documentation
+  - Add dev mode checks to all endpoints that filter by user access
+  - Include integration tests that verify dev JWT bypasses access controls
+- **Verification**:
+  ```bash
+  # Install test script dependencies
+  pip install -r requirements.txt
+
+  # Test full webhook pipeline with dev JWT
+  ./scripts/send_webhook.sh
+  # Should show:
+  # ✅ Webhook accepted
+  # ✅ Issue found in API
+  # ✅ AI classification triggered
+  # ✅ Full pipeline completed
+
+  # Verify issue appears in API
+  python3 -c "from jose import jwt; import time; print(jwt.encode({'sub':'0','username':'dev_user','dev_mode':True,'exp':int(time.time())+3600}, 'dev-jwt-secret-change-in-production-to-secure-random-key', algorithm='HS256'))" | xargs -I {} curl -H "Authorization: Bearer {}" http://localhost:8002/api/issues | jq length
+  # Should return count > 0
+  ```
+- **Technical Details**:
+  - Dev JWT payload: `{'sub': '0', 'username': 'dev_user', 'dev_mode': True, 'exp': timestamp}`
+  - JWT secret: `dev-jwt-secret-change-in-production-to-secure-random-key` (hardcoded in both script and Gateway)
+  - User ID `0` doesn't exist in `dispatchai.users` table and has no entries in `dispatchai.user_repositories`
+  - Production JWTs from auth service don't include `dev_mode` field, maintaining proper access controls
+  - Gateway checks `is_dev_mode = current_user.get("dev_mode", False)` defaulting to False for security
 
 ### BUG-013: GitHub Issues with Null Body Fields Fail Processing
 - **Symptom**: Classifier service fails with `1 validation error for IssueData body Input should be a valid string [type=string_type, input_value=None, input_type=NoneType]` when GitHub issues have empty body content
@@ -439,5 +488,25 @@ docker exec dispatchai-redpanda rpk group describe dispatchai-gateway
 
 ---
 
-*Last Updated: July 21, 2025*
+## Database Migrations
+
+### Migration Management
+- **Location**: `infra/migrations/` directory
+- **Naming**: `NNN_descriptive_name.sql` format
+- **Application**: `make migrate` (all) or `make migrate-file FILE=<filename>` (specific)
+
+### Migration Guidelines
+1. Always test in development environment first
+2. Migrations should be idempotent (safe to run multiple times)
+3. Use transactions (BEGIN/COMMIT) to ensure atomic operations
+4. Include verification logic to confirm success
+5. Document purpose and impact in migration file header
+6. Never modify existing migrations after production deployment
+
+### Available Migrations
+- **001_add_unique_issue_id_constraint.sql** - Fixes duplicate enriched issues by adding unique constraint on `issue_id`
+
+---
+
+*Last Updated: October 13, 2025*
 *Next Review: Weekly during active development*

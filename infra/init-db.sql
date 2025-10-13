@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS issues (
 -- Enriched issues table - stores AI-processed issue data
 CREATE TABLE IF NOT EXISTS enriched_issues (
     id BIGSERIAL PRIMARY KEY,
-    issue_id BIGINT REFERENCES issues(id) ON DELETE CASCADE,
+    issue_id BIGINT UNIQUE NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
     classification JSONB NOT NULL, -- {type, priority, component, sentiment, etc.}
     summary TEXT,
     tags TEXT[] DEFAULT '{}',
