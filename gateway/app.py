@@ -498,22 +498,27 @@ async def get_issues(
     """
     try:
         user_id = current_user["sub"]
+        is_dev_mode = current_user.get("dev_mode", False)
+        
         conn = psycopg2.connect(DATABASE_URL)
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            # Build dynamic query - only show issues from user's connected repositories or issues pulled by the user
-            where_conditions = [
-                """(
-                    EXISTS (
-                        SELECT 1 FROM dispatchai.user_repositories ur
-                        JOIN dispatchai.repositories r ON ur.repo_id = r.id
-                        WHERE ur.user_id = %s
-                        AND r.owner = i.repository_owner
-                        AND r.name = i.repository_name
-                    )
-                    OR i.pulled_by_user_id = %s
-                )"""
-            ]
-            params = [user_id, user_id]
+            where_conditions = []
+            params = []
+            
+            if not is_dev_mode:
+                where_conditions.append(
+                    """(
+                        EXISTS (
+                            SELECT 1 FROM dispatchai.user_repositories ur
+                            JOIN dispatchai.repositories r ON ur.repo_id = r.id
+                            WHERE ur.user_id = %s
+                            AND r.owner = i.repository_owner
+                            AND r.name = i.repository_name
+                        )
+                        OR i.pulled_by_user_id = %s
+                    )"""
+                )
+                params.extend([user_id, user_id])
 
             if repository:
                 where_conditions.append("i.repository_name = %s")
@@ -527,7 +532,7 @@ async def get_issues(
                 where_conditions.append("e.priority = %s")
                 params.append(priority)
 
-            where_clause = " AND ".join(where_conditions)
+            where_clause = " AND ".join(where_conditions) if where_conditions else "1=1"
 
             query = f"""
                 SELECT
@@ -828,85 +833,127 @@ async def get_stats(current_user: dict = Depends(get_current_user_required)):
     """Get dashboard statistics for authenticated user only"""
     try:
         user_id = current_user["sub"]
+        is_dev_mode = current_user.get("dev_mode", False)
+        
         conn = psycopg2.connect(DATABASE_URL)
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            # Get basic counts - only for user's accessible repositories
-            cur.execute(
+            if is_dev_mode:
+                cur.execute(
+                    """
+                    SELECT
+                        COUNT(*) as total_issues,
+                        COUNT(e.issue_id) as classified_issues,
+                        COUNT(*) - COUNT(e.issue_id) as pending_issues
+                    FROM dispatchai.issues i
+                    LEFT JOIN dispatchai.enriched_issues e ON i.id = e.issue_id
                 """
-                SELECT
-                    COUNT(*) as total_issues,
-                    COUNT(e.issue_id) as classified_issues,
-                    COUNT(*) - COUNT(e.issue_id) as pending_issues
-                FROM dispatchai.issues i
-                LEFT JOIN dispatchai.enriched_issues e ON i.id = e.issue_id
-                WHERE (
-                    EXISTS (
-                        SELECT 1 FROM dispatchai.user_repositories ur
-                        JOIN dispatchai.repositories r ON ur.repo_id = r.id
-                        WHERE ur.user_id = %s
-                        AND r.owner = i.repository_owner
-                        AND r.name = i.repository_name
-                    )
-                    OR i.pulled_by_user_id = %s
                 )
-            """,
-                (user_id, user_id),
-            )
+            else:
+                cur.execute(
+                    """
+                    SELECT
+                        COUNT(*) as total_issues,
+                        COUNT(e.issue_id) as classified_issues,
+                        COUNT(*) - COUNT(e.issue_id) as pending_issues
+                    FROM dispatchai.issues i
+                    LEFT JOIN dispatchai.enriched_issues e ON i.id = e.issue_id
+                    WHERE (
+                        EXISTS (
+                            SELECT 1 FROM dispatchai.user_repositories ur
+                            JOIN dispatchai.repositories r ON ur.repo_id = r.id
+                            WHERE ur.user_id = %s
+                            AND r.owner = i.repository_owner
+                            AND r.name = i.repository_name
+                        )
+                        OR i.pulled_by_user_id = %s
+                    )
+                """,
+                    (user_id, user_id),
+                )
             counts = cur.fetchone()
 
-            # Get category breakdown - only for user's accessible repositories
-            cur.execute(
+            if is_dev_mode:
+                cur.execute(
+                    """
+                    SELECT category, COUNT(*) as count
+                    FROM dispatchai.enriched_issues e
+                    JOIN dispatchai.issues i ON e.issue_id = i.id
+                    WHERE category IS NOT NULL
+                    GROUP BY category
+                    ORDER BY count DESC
                 """
-                SELECT category, COUNT(*) as count
-                FROM dispatchai.enriched_issues e
-                JOIN dispatchai.issues i ON e.issue_id = i.id
-                WHERE category IS NOT NULL
-                AND (
-                    EXISTS (
-                        SELECT 1 FROM dispatchai.user_repositories ur
-                        JOIN dispatchai.repositories r ON ur.repo_id = r.id
-                        WHERE ur.user_id = %s
-                        AND r.owner = i.repository_owner
-                        AND r.name = i.repository_name
-                    )
-                    OR i.pulled_by_user_id = %s
                 )
-                GROUP BY category
-                ORDER BY count DESC
-            """,
-                (user_id, user_id),
-            )
+            else:
+                cur.execute(
+                    """
+                    SELECT category, COUNT(*) as count
+                    FROM dispatchai.enriched_issues e
+                    JOIN dispatchai.issues i ON e.issue_id = i.id
+                    WHERE category IS NOT NULL
+                    AND (
+                        EXISTS (
+                            SELECT 1 FROM dispatchai.user_repositories ur
+                            JOIN dispatchai.repositories r ON ur.repo_id = r.id
+                            WHERE ur.user_id = %s
+                            AND r.owner = i.repository_owner
+                            AND r.name = i.repository_name
+                        )
+                        OR i.pulled_by_user_id = %s
+                    )
+                    GROUP BY category
+                    ORDER BY count DESC
+                """,
+                    (user_id, user_id),
+                )
             categories = cur.fetchall()
 
-            # Get priority breakdown - only for user's accessible repositories
-            cur.execute(
+            if is_dev_mode:
+                cur.execute(
+                    """
+                    SELECT priority, COUNT(*) as count
+                    FROM dispatchai.enriched_issues e
+                    JOIN dispatchai.issues i ON e.issue_id = i.id
+                    WHERE priority IS NOT NULL
+                    GROUP BY priority
+                    ORDER BY
+                        CASE priority
+                            WHEN 'critical' THEN 1
+                            WHEN 'high' THEN 2
+                            WHEN 'medium' THEN 3
+                            WHEN 'low' THEN 4
+                            ELSE 5
+                        END
                 """
-                SELECT priority, COUNT(*) as count
-                FROM dispatchai.enriched_issues e
-                JOIN dispatchai.issues i ON e.issue_id = i.id
-                WHERE priority IS NOT NULL
-                AND (
-                    EXISTS (
-                        SELECT 1 FROM dispatchai.user_repositories ur
-                        JOIN dispatchai.repositories r ON ur.repo_id = r.id
-                        WHERE ur.user_id = %s
-                        AND r.owner = i.repository_owner
-                        AND r.name = i.repository_name
-                    )
-                    OR i.pulled_by_user_id = %s
                 )
-                GROUP BY priority
-                ORDER BY
-                    CASE priority
-                        WHEN 'critical' THEN 1
-                        WHEN 'high' THEN 2
-                        WHEN 'medium' THEN 3
-                        WHEN 'low' THEN 4
-                        ELSE 5
-                    END
-            """,
-                (user_id, user_id),
-            )
+            else:
+                cur.execute(
+                    """
+                    SELECT priority, COUNT(*) as count
+                    FROM dispatchai.enriched_issues e
+                    JOIN dispatchai.issues i ON e.issue_id = i.id
+                    WHERE priority IS NOT NULL
+                    AND (
+                        EXISTS (
+                            SELECT 1 FROM dispatchai.user_repositories ur
+                            JOIN dispatchai.repositories r ON ur.repo_id = r.id
+                            WHERE ur.user_id = %s
+                            AND r.owner = i.repository_owner
+                            AND r.name = i.repository_name
+                        )
+                        OR i.pulled_by_user_id = %s
+                    )
+                    GROUP BY priority
+                    ORDER BY
+                        CASE priority
+                            WHEN 'critical' THEN 1
+                            WHEN 'high' THEN 2
+                            WHEN 'medium' THEN 3
+                            WHEN 'low' THEN 4
+                            ELSE 5
+                        END
+                """,
+                    (user_id, user_id),
+                )
             priorities = cur.fetchall()
 
         conn.close()
