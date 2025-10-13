@@ -138,6 +138,7 @@ app.add_middleware(
 # Metrics tracking
 class ServiceMetrics:
     """In-memory metrics tracking for observability"""
+
     def __init__(self):
         self.start_time = time.time()
         self.webhooks_received = 0
@@ -145,25 +146,25 @@ class ServiceMetrics:
         self.webhooks_rejected = 0
         self.kafka_publish_errors = 0
         self.processing_times_ms = []
-        
+
     def record_webhook_received(self):
         self.webhooks_received += 1
-    
+
     def record_webhook_accepted(self):
         self.webhooks_accepted += 1
-    
+
     def record_webhook_rejected(self):
         self.webhooks_rejected += 1
-    
+
     def record_kafka_error(self):
         self.kafka_publish_errors += 1
-    
+
     def record_processing_time(self, duration_ms: float):
         self.processing_times_ms.append(duration_ms)
         # Keep only last 1000 measurements to prevent memory issues
         if len(self.processing_times_ms) > 1000:
             self.processing_times_ms = self.processing_times_ms[-1000:]
-    
+
     def get_percentile(self, percentile: int) -> float:
         """Calculate percentile from processing times"""
         if not self.processing_times_ms:
@@ -171,10 +172,10 @@ class ServiceMetrics:
         sorted_times = sorted(self.processing_times_ms)
         index = int(len(sorted_times) * percentile / 100)
         return round(sorted_times[min(index, len(sorted_times) - 1)], 2)
-    
+
     def get_uptime_seconds(self) -> int:
         return int(time.time() - self.start_time)
-    
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "service": "ingress",
@@ -189,6 +190,7 @@ class ServiceMetrics:
             "kafka_publish_errors": self.kafka_publish_errors,
             "uptime_seconds": self.get_uptime_seconds(),
         }
+
 
 metrics = ServiceMetrics()
 
@@ -360,7 +362,9 @@ def verify_github_signature(payload_body: bytes, signature_header: str) -> bool:
         return False
 
 
-async def publish_to_kafka(topic: str, key: str, message: dict, correlation_id: Optional[str] = None):
+async def publish_to_kafka(
+    topic: str, key: str, message: dict, correlation_id: Optional[str] = None
+):
     """
     Publish message to Kafka/Redpanda topic with optional correlation ID in headers
     """
@@ -369,7 +373,7 @@ async def publish_to_kafka(topic: str, key: str, message: dict, correlation_id: 
         headers = []
         if correlation_id:
             headers.append(("correlation_id", correlation_id.encode("utf-8")))
-        
+
         future = producer.send(topic, key=key, value=message, headers=headers)
         record_metadata = future.get(timeout=10)
 
@@ -383,7 +387,13 @@ async def publish_to_kafka(topic: str, key: str, message: dict, correlation_id: 
         )
 
     except Exception as e:
-        logger.error("Failed to publish to Kafka", topic=topic, key=key, correlation_id=correlation_id, error=str(e))
+        logger.error(
+            "Failed to publish to Kafka",
+            topic=topic,
+            key=key,
+            correlation_id=correlation_id,
+            error=str(e),
+        )
         metrics.record_kafka_error()
         raise
 
@@ -412,10 +422,10 @@ async def github_webhook(
     """
     start_time = time.time()
     metrics.record_webhook_received()
-    
+
     try:
         correlation_id = str(uuid.uuid4())
-        
+
         # Get raw body for signature verification
         body = await request.body()
 
@@ -428,7 +438,9 @@ async def github_webhook(
         try:
             payload = json.loads(body.decode("utf-8"))
         except json.JSONDecodeError as e:
-            logger.error("Invalid JSON payload", error=str(e), correlation_id=correlation_id)
+            logger.error(
+                "Invalid JSON payload", error=str(e), correlation_id=correlation_id
+            )
             raise HTTPException(status_code=400, detail="Invalid JSON payload")
 
         # Get event type and validate
@@ -561,7 +573,12 @@ async def github_webhook(
         message_key = f"{event_data['repository']['full_name']}:{event_data['event_type']}:{event_data.get('issue', event_data.get('pull_request', {})).get('number', 'unknown')}"
         print(f"Publishing to Kafka: {message_key}")
 
-        await publish_to_kafka(KAFKA_TOPIC_RAW_ISSUES, message_key, event_data, correlation_id=correlation_id)
+        await publish_to_kafka(
+            KAFKA_TOPIC_RAW_ISSUES,
+            message_key,
+            event_data,
+            correlation_id=correlation_id,
+        )
 
         logger.info(
             "Webhook processed successfully",
@@ -571,7 +588,7 @@ async def github_webhook(
             message_key=message_key,
             correlation_id=correlation_id,
         )
-        
+
         # Record successful processing
         metrics.record_webhook_accepted()
         processing_time_ms = (time.time() - start_time) * 1000

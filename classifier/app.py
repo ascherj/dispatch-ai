@@ -56,24 +56,25 @@ app = FastAPI(
 # Metrics tracking
 class ServiceMetrics:
     """In-memory metrics tracking for observability"""
+
     def __init__(self):
         self.start_time = datetime.now()
         self.issues_processed = 0
         self.openai_api_errors = 0
         self.classification_times_ms = []
-        
+
     def record_issue_processed(self):
         self.issues_processed += 1
-    
+
     def record_openai_error(self):
         self.openai_api_errors += 1
-    
+
     def record_classification_time(self, duration_ms: float):
         self.classification_times_ms.append(duration_ms)
         # Keep only last 1000 measurements
         if len(self.classification_times_ms) > 1000:
             self.classification_times_ms = self.classification_times_ms[-1000:]
-    
+
     def get_percentile(self, percentile: int) -> float:
         """Calculate percentile from classification times"""
         if not self.classification_times_ms:
@@ -81,10 +82,10 @@ class ServiceMetrics:
         sorted_times = sorted(self.classification_times_ms)
         index = int(len(sorted_times) * percentile / 100)
         return round(sorted_times[min(index, len(sorted_times) - 1)], 2)
-    
+
     def get_uptime_seconds(self) -> int:
         return int((datetime.now() - self.start_time).total_seconds())
-    
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "service": "classifier",
@@ -97,6 +98,7 @@ class ServiceMetrics:
             "openai_api_errors": self.openai_api_errors,
             "uptime_seconds": self.get_uptime_seconds(),
         }
+
 
 metrics = ServiceMetrics()
 
@@ -309,7 +311,7 @@ async def classify_issue(issue: IssueData):
             confidence=result.confidence,
             processing_time_ms=result.processing_time_ms,
         )
-        
+
         # Record metrics
         metrics.record_issue_processed()
         metrics.record_classification_time(result.processing_time_ms)
@@ -673,9 +675,11 @@ async def process_kafka_message(message):
                 if key == "correlation_id":
                     correlation_id = value.decode("utf-8")
                     break
-        
-        bound_logger = logger.bind(correlation_id=correlation_id) if correlation_id else logger
-        
+
+        bound_logger = (
+            logger.bind(correlation_id=correlation_id) if correlation_id else logger
+        )
+
         # Parse the message
         issue_data = json.loads(message.value.decode("utf-8"))
 
@@ -714,9 +718,12 @@ async def process_kafka_message(message):
         )
 
     except Exception as e:
-        error_correlation_id = correlation_id if 'correlation_id' in locals() else None
+        error_correlation_id = correlation_id if "correlation_id" in locals() else None
         logger.error(
-            "Failed to process Kafka message", error=str(e), message=message.value, correlation_id=error_correlation_id
+            "Failed to process Kafka message",
+            error=str(e),
+            message=message.value,
+            correlation_id=error_correlation_id,
         )
 
 

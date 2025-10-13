@@ -96,24 +96,25 @@ security = HTTPBearer(auto_error=False)
 # Metrics tracking
 class ServiceMetrics:
     """In-memory metrics tracking for observability"""
+
     def __init__(self):
         self.start_time = datetime.now()
         self.messages_broadcast = 0
         self.api_requests = 0
         self.api_latencies_ms = []
-        
+
     def record_message_broadcast(self):
         self.messages_broadcast += 1
-    
+
     def record_api_request(self):
         self.api_requests += 1
-    
+
     def record_api_latency(self, latency_ms: float):
         self.api_latencies_ms.append(latency_ms)
         # Keep only last 1000 measurements
         if len(self.api_latencies_ms) > 1000:
             self.api_latencies_ms = self.api_latencies_ms[-1000:]
-    
+
     def get_percentile(self, percentile: int) -> float:
         """Calculate percentile from API latencies"""
         if not self.api_latencies_ms:
@@ -121,10 +122,10 @@ class ServiceMetrics:
         sorted_times = sorted(self.api_latencies_ms)
         index = int(len(sorted_times) * percentile / 100)
         return round(sorted_times[min(index, len(sorted_times) - 1)], 2)
-    
+
     def get_uptime_seconds(self) -> int:
         return int((datetime.now() - self.start_time).total_seconds())
-    
+
     def to_dict(self, active_connections: int) -> Dict[str, Any]:
         return {
             "service": "gateway",
@@ -138,6 +139,7 @@ class ServiceMetrics:
             },
             "uptime_seconds": self.get_uptime_seconds(),
         }
+
 
 metrics = ServiceMetrics()
 
@@ -499,12 +501,12 @@ async def get_issues(
     try:
         user_id = current_user["sub"]
         is_dev_mode = current_user.get("dev_mode", False)
-        
+
         conn = psycopg2.connect(DATABASE_URL)
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             where_conditions = []
             params = []
-            
+
             if not is_dev_mode:
                 where_conditions.append(
                     """(
@@ -834,7 +836,7 @@ async def get_stats(current_user: dict = Depends(get_current_user_required)):
     try:
         user_id = current_user["sub"]
         is_dev_mode = current_user.get("dev_mode", False)
-        
+
         conn = psycopg2.connect(DATABASE_URL)
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             if is_dev_mode:
@@ -1772,8 +1774,10 @@ class RobustKafkaConsumer:
                     if key == "correlation_id":
                         correlation_id = value.decode("utf-8")
                         break
-            
-            print(f"DEBUG: Processing message from {message.topic}, correlation_id={correlation_id}")
+
+            print(
+                f"DEBUG: Processing message from {message.topic}, correlation_id={correlation_id}"
+            )
 
             event_data = json.loads(message.value.decode("utf-8"))
 
@@ -1831,7 +1835,7 @@ class RobustKafkaConsumer:
             await self.manager.broadcast(
                 json.dumps(websocket_message), user_filter=user_can_see_issue
             )
-            
+
             # Record metrics
             metrics.record_message_broadcast()
 
@@ -1849,7 +1853,9 @@ class RobustKafkaConsumer:
             )
 
         except Exception as e:
-            error_correlation_id = correlation_id if 'correlation_id' in locals() else None
+            error_correlation_id = (
+                correlation_id if "correlation_id" in locals() else None
+            )
             logger.error(
                 "Error processing Kafka message",
                 error=str(e),
