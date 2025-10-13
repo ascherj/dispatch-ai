@@ -93,6 +93,55 @@ app.add_middleware(
 security = HTTPBearer(auto_error=False)
 
 
+# Metrics tracking
+class ServiceMetrics:
+    """In-memory metrics tracking for observability"""
+    def __init__(self):
+        self.start_time = datetime.now()
+        self.messages_broadcast = 0
+        self.api_requests = 0
+        self.api_latencies_ms = []
+        
+    def record_message_broadcast(self):
+        self.messages_broadcast += 1
+    
+    def record_api_request(self):
+        self.api_requests += 1
+    
+    def record_api_latency(self, latency_ms: float):
+        self.api_latencies_ms.append(latency_ms)
+        # Keep only last 1000 measurements
+        if len(self.api_latencies_ms) > 1000:
+            self.api_latencies_ms = self.api_latencies_ms[-1000:]
+    
+    def get_percentile(self, percentile: int) -> float:
+        """Calculate percentile from API latencies"""
+        if not self.api_latencies_ms:
+            return 0.0
+        sorted_times = sorted(self.api_latencies_ms)
+        index = int(len(sorted_times) * percentile / 100)
+        return round(sorted_times[min(index, len(sorted_times) - 1)], 2)
+    
+    def get_uptime_seconds(self) -> int:
+        return int((datetime.now() - self.start_time).total_seconds())
+    
+    def to_dict(self, active_connections: int) -> Dict[str, Any]:
+        return {
+            "service": "gateway",
+            "websocket_connections_active": active_connections,
+            "messages_broadcast": self.messages_broadcast,
+            "api_requests": self.api_requests,
+            "api_latency_ms": {
+                "p50": self.get_percentile(50),
+                "p95": self.get_percentile(95),
+                "p99": self.get_percentile(99),
+            },
+            "uptime_seconds": self.get_uptime_seconds(),
+        }
+
+metrics = ServiceMetrics()
+
+
 # Pydantic models
 class IssueResponse(BaseModel):
     id: int
@@ -310,6 +359,12 @@ async def health_check():
         version="0.1.0",
         connected_clients=len(manager.active_connections),
     )
+
+
+@app.get("/metrics")
+async def get_metrics():
+    """Expose operational metrics for monitoring"""
+    return metrics.to_dict(active_connections=len(manager.active_connections))
 
 
 @app.websocket("/ws")
@@ -1729,6 +1784,9 @@ class RobustKafkaConsumer:
             await self.manager.broadcast(
                 json.dumps(websocket_message), user_filter=user_can_see_issue
             )
+            
+            # Record metrics
+            metrics.record_message_broadcast()
 
             print(f"DEBUG: Successfully broadcasted message from {message.topic}")
 

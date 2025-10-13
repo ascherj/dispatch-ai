@@ -135,6 +135,64 @@ app.add_middleware(
 )
 
 
+# Metrics tracking
+class ServiceMetrics:
+    """In-memory metrics tracking for observability"""
+    def __init__(self):
+        self.start_time = time.time()
+        self.webhooks_received = 0
+        self.webhooks_accepted = 0
+        self.webhooks_rejected = 0
+        self.kafka_publish_errors = 0
+        self.processing_times_ms = []
+        
+    def record_webhook_received(self):
+        self.webhooks_received += 1
+    
+    def record_webhook_accepted(self):
+        self.webhooks_accepted += 1
+    
+    def record_webhook_rejected(self):
+        self.webhooks_rejected += 1
+    
+    def record_kafka_error(self):
+        self.kafka_publish_errors += 1
+    
+    def record_processing_time(self, duration_ms: float):
+        self.processing_times_ms.append(duration_ms)
+        # Keep only last 1000 measurements to prevent memory issues
+        if len(self.processing_times_ms) > 1000:
+            self.processing_times_ms = self.processing_times_ms[-1000:]
+    
+    def get_percentile(self, percentile: int) -> float:
+        """Calculate percentile from processing times"""
+        if not self.processing_times_ms:
+            return 0.0
+        sorted_times = sorted(self.processing_times_ms)
+        index = int(len(sorted_times) * percentile / 100)
+        return round(sorted_times[min(index, len(sorted_times) - 1)], 2)
+    
+    def get_uptime_seconds(self) -> int:
+        return int(time.time() - self.start_time)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "service": "ingress",
+            "webhooks_received": self.webhooks_received,
+            "webhooks_accepted": self.webhooks_accepted,
+            "webhooks_rejected": self.webhooks_rejected,
+            "processing_time_ms": {
+                "p50": self.get_percentile(50),
+                "p95": self.get_percentile(95),
+                "p99": self.get_percentile(99),
+            },
+            "kafka_publish_errors": self.kafka_publish_errors,
+            "uptime_seconds": self.get_uptime_seconds(),
+        }
+
+metrics = ServiceMetrics()
+
+
 # Pydantic models for GitHub webhook payloads
 class GitHubUser(BaseModel):
     id: int
@@ -326,6 +384,7 @@ async def publish_to_kafka(topic: str, key: str, message: dict, correlation_id: 
 
     except Exception as e:
         logger.error("Failed to publish to Kafka", topic=topic, key=key, correlation_id=correlation_id, error=str(e))
+        metrics.record_kafka_error()
         raise
 
 
@@ -333,6 +392,12 @@ async def publish_to_kafka(topic: str, key: str, message: dict, correlation_id: 
 async def health_check():
     """Health check endpoint"""
     return HealthResponse(status="healthy", service="ingress", version="0.1.0")
+
+
+@app.get("/metrics")
+async def get_metrics():
+    """Expose operational metrics for monitoring"""
+    return metrics.to_dict()
 
 
 @app.post("/webhook/github")
@@ -345,6 +410,9 @@ async def github_webhook(
     GitHub webhook endpoint for issues, issue comments, and pull requests
     Validates signatures and publishes events to Kafka/Redpanda
     """
+    start_time = time.time()
+    metrics.record_webhook_received()
+    
     try:
         correlation_id = str(uuid.uuid4())
         
@@ -353,6 +421,7 @@ async def github_webhook(
 
         # Verify GitHub signature
         if not verify_github_signature(body, x_hub_signature_256):
+            metrics.record_webhook_rejected()
             raise HTTPException(status_code=401, detail="Invalid signature")
 
         # Parse JSON payload
@@ -502,6 +571,11 @@ async def github_webhook(
             message_key=message_key,
             correlation_id=correlation_id,
         )
+        
+        # Record successful processing
+        metrics.record_webhook_accepted()
+        processing_time_ms = (time.time() - start_time) * 1000
+        metrics.record_processing_time(processing_time_ms)
 
         return {
             "status": "accepted",
@@ -517,6 +591,7 @@ async def github_webhook(
         raise
     except Exception as e:
         logger.error("Error processing webhook", error=str(e), exc_info=True)
+        metrics.record_webhook_rejected()
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

@@ -53,6 +53,54 @@ app = FastAPI(
 )
 
 
+# Metrics tracking
+class ServiceMetrics:
+    """In-memory metrics tracking for observability"""
+    def __init__(self):
+        self.start_time = datetime.now()
+        self.issues_processed = 0
+        self.openai_api_errors = 0
+        self.classification_times_ms = []
+        
+    def record_issue_processed(self):
+        self.issues_processed += 1
+    
+    def record_openai_error(self):
+        self.openai_api_errors += 1
+    
+    def record_classification_time(self, duration_ms: float):
+        self.classification_times_ms.append(duration_ms)
+        # Keep only last 1000 measurements
+        if len(self.classification_times_ms) > 1000:
+            self.classification_times_ms = self.classification_times_ms[-1000:]
+    
+    def get_percentile(self, percentile: int) -> float:
+        """Calculate percentile from classification times"""
+        if not self.classification_times_ms:
+            return 0.0
+        sorted_times = sorted(self.classification_times_ms)
+        index = int(len(sorted_times) * percentile / 100)
+        return round(sorted_times[min(index, len(sorted_times) - 1)], 2)
+    
+    def get_uptime_seconds(self) -> int:
+        return int((datetime.now() - self.start_time).total_seconds())
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "service": "classifier",
+            "issues_processed": self.issues_processed,
+            "classification_time_ms": {
+                "p50": self.get_percentile(50),
+                "p95": self.get_percentile(95),
+                "p99": self.get_percentile(99),
+            },
+            "openai_api_errors": self.openai_api_errors,
+            "uptime_seconds": self.get_uptime_seconds(),
+        }
+
+metrics = ServiceMetrics()
+
+
 def get_kafka_producer():
     """Get or create Kafka producer instance"""
     global kafka_producer
@@ -182,6 +230,12 @@ async def health_check():
     )
 
 
+@app.get("/metrics")
+async def get_metrics():
+    """Expose operational metrics for monitoring"""
+    return metrics.to_dict()
+
+
 @app.on_event("shutdown")
 async def shutdown_event():
     """Clean up resources on shutdown"""
@@ -255,6 +309,10 @@ async def classify_issue(issue: IssueData):
             confidence=result.confidence,
             processing_time_ms=result.processing_time_ms,
         )
+        
+        # Record metrics
+        metrics.record_issue_processed()
+        metrics.record_classification_time(result.processing_time_ms)
 
         return result
 
@@ -297,9 +355,11 @@ async def ai_classification(issue: IssueData) -> Dict[str, Any]:
             "Failed to parse AI response, using fallback",
             response_content=response.content[:500],
         )
+        metrics.record_openai_error()
         return fallback_classification(issue)
     except Exception as e:
         logger.error("AI classification failed", error=str(e))
+        metrics.record_openai_error()
         return fallback_classification(issue)
 
 
