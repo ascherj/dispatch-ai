@@ -1,0 +1,9 @@
+# Development and Testing Dependencies
+# For production service dependencies, see each service's requirements.in file:
+#   - ingress/requirements.in
+#   - auth/requirements.in
+#   - classifier/requirements.in
+#   - gateway/requirements.in
+
+# Test scripts (scripts/send_webhook.sh, scripts/test-correlation-tracing.sh)
+python-jose[cryptography]>=3.3.0
