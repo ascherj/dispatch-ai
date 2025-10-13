@@ -607,8 +607,24 @@ async def find_similar_issues(
 async def process_kafka_message(message):
     """Process a Kafka message containing issue data"""
     try:
+        correlation_id = None
+        if message.headers:
+            for key, value in message.headers:
+                if key == "correlation_id":
+                    correlation_id = value.decode("utf-8")
+                    break
+        
+        bound_logger = logger.bind(correlation_id=correlation_id) if correlation_id else logger
+        
         # Parse the message
         issue_data = json.loads(message.value.decode("utf-8"))
+
+        bound_logger.info(
+            "Received Kafka message for classification",
+            topic=message.topic,
+            partition=message.partition,
+            offset=message.offset,
+        )
 
         # Convert to IssueData model
         issue = IssueData(
@@ -630,7 +646,7 @@ async def process_kafka_message(message):
         # Process the issue
         await classify_issue(issue)
 
-        logger.info(
+        bound_logger.info(
             "Processed Kafka message",
             issue_id=issue.id,
             issue_number=issue.number,
@@ -638,8 +654,9 @@ async def process_kafka_message(message):
         )
 
     except Exception as e:
+        error_correlation_id = correlation_id if 'correlation_id' in locals() else None
         logger.error(
-            "Failed to process Kafka message", error=str(e), message=message.value
+            "Failed to process Kafka message", error=str(e), message=message.value, correlation_id=error_correlation_id
         )
 
 

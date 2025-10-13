@@ -1664,7 +1664,14 @@ class RobustKafkaConsumer:
     async def _process_message(self, message):
         """Process a single Kafka message and broadcast via WebSocket"""
         try:
-            print(f"DEBUG: Processing message from {message.topic}")
+            correlation_id = None
+            if message.headers:
+                for key, value in message.headers:
+                    if key == "correlation_id":
+                        correlation_id = value.decode("utf-8")
+                        break
+            
+            print(f"DEBUG: Processing message from {message.topic}, correlation_id={correlation_id}")
 
             event_data = json.loads(message.value.decode("utf-8"))
 
@@ -1673,6 +1680,7 @@ class RobustKafkaConsumer:
                 "topic": message.topic,
                 "timestamp": datetime.now().isoformat(),
                 "data": event_data,
+                "correlation_id": correlation_id,
             }
 
             # Extract repository info for filtering
@@ -1732,13 +1740,16 @@ class RobustKafkaConsumer:
                 repository=f"{repo_owner}/{repo_name}"
                 if repo_owner and repo_name
                 else None,
+                correlation_id=correlation_id,
             )
 
         except Exception as e:
+            error_correlation_id = correlation_id if 'correlation_id' in locals() else None
             logger.error(
                 "Error processing Kafka message",
                 error=str(e),
                 topic=message.topic if message else "unknown",
+                correlation_id=error_correlation_id,
             )
 
     async def stop(self):

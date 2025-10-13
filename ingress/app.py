@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import os
 import time
+import uuid
 from typing import Dict, Any, Optional
 from datetime import datetime, timezone
 from collections import defaultdict
@@ -301,13 +302,17 @@ def verify_github_signature(payload_body: bytes, signature_header: str) -> bool:
         return False
 
 
-async def publish_to_kafka(topic: str, key: str, message: dict):
+async def publish_to_kafka(topic: str, key: str, message: dict, correlation_id: Optional[str] = None):
     """
-    Publish message to Kafka/Redpanda topic
+    Publish message to Kafka/Redpanda topic with optional correlation ID in headers
     """
     try:
         producer = get_kafka_producer()
-        future = producer.send(topic, key=key, value=message)
+        headers = []
+        if correlation_id:
+            headers.append(("correlation_id", correlation_id.encode("utf-8")))
+        
+        future = producer.send(topic, key=key, value=message, headers=headers)
         record_metadata = future.get(timeout=10)
 
         logger.info(
@@ -316,10 +321,11 @@ async def publish_to_kafka(topic: str, key: str, message: dict):
             partition=record_metadata.partition,
             offset=record_metadata.offset,
             key=key,
+            correlation_id=correlation_id,
         )
 
     except Exception as e:
-        logger.error("Failed to publish to Kafka", topic=topic, key=key, error=str(e))
+        logger.error("Failed to publish to Kafka", topic=topic, key=key, correlation_id=correlation_id, error=str(e))
         raise
 
 
@@ -340,6 +346,8 @@ async def github_webhook(
     Validates signatures and publishes events to Kafka/Redpanda
     """
     try:
+        correlation_id = str(uuid.uuid4())
+        
         # Get raw body for signature verification
         body = await request.body()
 
@@ -351,7 +359,7 @@ async def github_webhook(
         try:
             payload = json.loads(body.decode("utf-8"))
         except json.JSONDecodeError as e:
-            logger.error("Invalid JSON payload", error=str(e))
+            logger.error("Invalid JSON payload", error=str(e), correlation_id=correlation_id)
             raise HTTPException(status_code=400, detail="Invalid JSON payload")
 
         # Get event type and validate
@@ -368,6 +376,7 @@ async def github_webhook(
             event_type=event_type,
             action=action,
             repository=repository_name,
+            correlation_id=correlation_id,
         )
 
         # Process supported event types
@@ -483,7 +492,7 @@ async def github_webhook(
         message_key = f"{event_data['repository']['full_name']}:{event_data['event_type']}:{event_data.get('issue', event_data.get('pull_request', {})).get('number', 'unknown')}"
         print(f"Publishing to Kafka: {message_key}")
 
-        await publish_to_kafka(KAFKA_TOPIC_RAW_ISSUES, message_key, event_data)
+        await publish_to_kafka(KAFKA_TOPIC_RAW_ISSUES, message_key, event_data, correlation_id=correlation_id)
 
         logger.info(
             "Webhook processed successfully",
@@ -491,6 +500,7 @@ async def github_webhook(
             action=action,
             repository=repository_name,
             message_key=message_key,
+            correlation_id=correlation_id,
         )
 
         return {
@@ -499,6 +509,7 @@ async def github_webhook(
             "action": action,
             "repository": repository_name,
             "message_key": message_key,
+            "correlation_id": correlation_id,
         }
 
     except HTTPException:
