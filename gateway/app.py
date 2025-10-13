@@ -458,7 +458,7 @@ async def get_public_repository_issues(
                     id=row["id"],
                     number=row["issue_number"],
                     title=row["title"],
-                    repository=row["repository_name"],
+                    repository=f"{row['repository_owner']}/{row['repository_name']}",
                     category=row["category"],
                     priority=row["priority"],
                     confidence=row["confidence_score"],
@@ -538,7 +538,7 @@ async def get_issues(
 
             query = f"""
                 SELECT
-                    i.id, i.issue_number, i.title, i.repository_name, i.created_at, i.updated_at,
+                    i.id, i.issue_number, i.title, i.repository_name, i.repository_owner, i.created_at, i.updated_at,
                     e.category, e.priority, e.confidence_score, e.tags
                 FROM dispatchai.issues i
                 LEFT JOIN dispatchai.enriched_issues e ON i.id = e.issue_id
@@ -561,7 +561,7 @@ async def get_issues(
                     id=row["id"],
                     number=row["issue_number"],
                     title=row["title"],
-                    repository=row["repository_name"],
+                    repository=f"{row['repository_owner']}/{row['repository_name']}",
                     category=row["category"],
                     priority=row["priority"],
                     confidence=row["confidence_score"],
@@ -640,7 +640,7 @@ async def get_issue(
             id=row["id"],
             number=row["issue_number"],
             title=row["title"],
-            repository=row["repository_name"],
+            repository=f"{row['repository_owner']}/{row['repository_name']}",
             category=row["category"],
             priority=row["priority"],
             confidence=row["confidence_score"],

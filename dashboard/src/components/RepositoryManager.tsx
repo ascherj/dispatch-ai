@@ -64,6 +64,11 @@ const RepositoryManager: React.FC = () => {
   const [connectingRepos, setConnectingRepos] = useState<Set<string>>(new Set());
   const [disconnectingRepos, setDisconnectingRepos] = useState<Set<string>>(new Set());
 
+  // Filtering state
+  const [searchTerm, setSearchTerm] = useState('');
+  const [connectionFilter, setConnectionFilter] = useState<'all' | 'connected' | 'not-connected'>('all');
+  const [permissionFilter, setPermissionFilter] = useState<'all' | 'admin' | 'push' | 'pull'>('all');
+
   const fetchOrganizations = useCallback(async () => {
     if (!isAuthenticated || !token) return;
 
@@ -303,6 +308,35 @@ const RepositoryManager: React.FC = () => {
     return new Date(dateString).toLocaleDateString();
   };
 
+  // Filter repositories based on current filter state
+  const getFilteredOrganizations = () => {
+    return organizations.map(org => {
+      const repos = organizationRepos.get(org.login) || [];
+      const filteredRepos = repos.filter(repo => {
+        // Search filter
+        const searchMatch = searchTerm === '' ||
+          repo.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          repo.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          repo.owner.toLowerCase().includes(searchTerm.toLowerCase());
+
+        // Connection filter
+        const connectionMatch = connectionFilter === 'all' ||
+          (connectionFilter === 'connected' && repo.connected) ||
+          (connectionFilter === 'not-connected' && !repo.connected);
+
+        // Permission filter
+        const permissionMatch = permissionFilter === 'all' ||
+          (permissionFilter === 'admin' && repo.permissions.admin) ||
+          (permissionFilter === 'push' && repo.permissions.push) ||
+          (permissionFilter === 'pull' && repo.permissions.pull);
+
+        return searchMatch && connectionMatch && permissionMatch;
+      });
+
+      return { ...org, filteredRepos };
+    }).filter(org => org.filteredRepos.length > 0 || searchTerm === ''); // Show org if it has filtered repos or no search term
+  };
+
   if (!isAuthenticated) {
     return (
       <div className="repository-manager">
@@ -328,6 +362,49 @@ const RepositoryManager: React.FC = () => {
           </button>
         </div>
 
+        <div className="filters-group">
+          <div className="filter-item">
+            <label htmlFor="repo-search">Search:</label>
+            <input
+              id="repo-search"
+              type="text"
+              placeholder="Search repositories..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="filter-input"
+            />
+          </div>
+
+          <div className="filter-item">
+            <label htmlFor="connection-filter">Connection:</label>
+            <select
+              id="connection-filter"
+              value={connectionFilter}
+              onChange={(e) => setConnectionFilter(e.target.value as 'all' | 'connected' | 'not-connected')}
+              className="filter-select"
+            >
+              <option value="all">All</option>
+              <option value="connected">Connected</option>
+              <option value="not-connected">Not Connected</option>
+            </select>
+          </div>
+
+          <div className="filter-item">
+            <label htmlFor="permission-filter">Permission:</label>
+            <select
+              id="permission-filter"
+              value={permissionFilter}
+              onChange={(e) => setPermissionFilter(e.target.value as 'all' | 'admin' | 'push' | 'pull')}
+              className="filter-select"
+            >
+              <option value="all">All</option>
+              <option value="admin">Admin</option>
+              <option value="push">Push</option>
+              <option value="pull">Pull</option>
+            </select>
+          </div>
+        </div>
+
       {error && (
         <div className="error-message">
           {error}
@@ -341,15 +418,17 @@ const RepositoryManager: React.FC = () => {
         </div>
       ) : (
         <div className="organizations-list">
-          {organizations.length === 0 ? (
-            <div className="no-organizations">
-              <p>No organizations found. Make sure you have access to repositories on GitHub.</p>
-            </div>
-          ) : (
-            organizations.map((org) => {
-              const isExpanded = expandedOrgs.has(org.login);
-              const isLoadingRepos = loadingRepos.has(org.login);
-              const repos = organizationRepos.get(org.login) || [];
+          {(() => {
+            const filteredOrgs = getFilteredOrganizations();
+            return filteredOrgs.length === 0 ? (
+              <div className="no-organizations">
+                <p>No repositories match your filters. Try adjusting your search criteria.</p>
+              </div>
+            ) : (
+              filteredOrgs.map((org) => {
+                const isExpanded = expandedOrgs.has(org.login);
+                const isLoadingRepos = loadingRepos.has(org.login);
+                const repos = org.filteredRepos;
 
               return (
                 <div
@@ -485,7 +564,8 @@ const RepositoryManager: React.FC = () => {
                 </div>
               );
             })
-          )}
+            );
+          })()}
         </div>
       )}
       </div>

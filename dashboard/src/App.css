@@ -321,6 +321,30 @@
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
 }
 
+.filter-input {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-weight: 600;
+  transition: all 0.3s ease;
+  flex: 1;
+  min-width: 200px;
+}
+
+.filter-input:hover {
+  border-color: var(--accent-primary);
+  box-shadow: 0 2px 8px var(--shadow-secondary);
+}
+
+.filter-input:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
 .repository-section {
   margin-bottom: 40px;
 }
@@ -342,6 +366,13 @@
   align-items: center;
   gap: 12px;
   box-shadow: 0 2px 8px var(--shadow-secondary);
+  transition: all 0.2s ease;
+}
+
+.repository-section-header:hover {
+  background: var(--bg-secondary);
+  border-color: var(--border-secondary);
+  box-shadow: 0 4px 12px var(--shadow-primary);
 }
 
 .repo-badge-header {

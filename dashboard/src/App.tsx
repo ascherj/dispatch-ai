@@ -63,9 +63,26 @@ function DashboardContent() {
   const [activeTab, setActiveTab] = useState<'issues' | 'repositories'>('issues')
   const [repositories, setRepositories] = useState<Repository[]>([])
   const [selectedRepo, setSelectedRepo] = useState<string>('all')
+
+  // Get unique repositories from issues for filtering
+  const getUniqueRepositoriesFromIssues = () => {
+    const repoFullNames = [...new Set(issues.map(issue => issue.repository))]
+    return repoFullNames.map(repoFullName => {
+      // Find the full repository info if available, otherwise create a basic one
+      const repoInfo = repositories.find(r => r.full_name === repoFullName)
+      return repoInfo || {
+        id: -1, // Placeholder ID for repos not in the connected list
+        owner: repoFullName.split('/')[0] || 'unknown',
+        name: repoFullName.split('/')[1] || repoFullName,
+        full_name: repoFullName,
+        is_public_dashboard: false
+      }
+    })
+  }
   const [sortBy, setSortBy] = useState<'date' | 'priority' | 'status'>('date')
   const [filterCategory, setFilterCategory] = useState<string>('all')
   const [filterPriority, setFilterPriority] = useState<string>('all')
+  const [collapsedRepos, setCollapsedRepos] = useState<Set<string>>(new Set())
 
   // Utility function for authenticated API calls
   const authenticatedFetch = useCallback(async (url: string, options: RequestInit = {}) => {
@@ -494,7 +511,7 @@ function DashboardContent() {
                   className="filter-select"
                 >
                   <option value="all">All Repositories</option>
-                  {repositories.map(repo => (
+                  {getUniqueRepositoriesFromIssues().map(repo => (
                     <option key={repo.id} value={repo.full_name}>
                       {repo.full_name}
                       {repo.is_public_dashboard && ' 🌐'}
@@ -553,7 +570,7 @@ function DashboardContent() {
           </div>
           {(() => {
             let filteredIssues = issues.filter(issue => {
-              const repoMatch = selectedRepo === 'all' || issue.repository === selectedRepo.split('/')[1]
+              const repoMatch = selectedRepo === 'all' || issue.repository === selectedRepo
               const categoryMatch = filterCategory === 'all' || issue.category === filterCategory
               const priorityMatch = filterPriority === 'all' || issue.priority === filterPriority
               return repoMatch && categoryMatch && priorityMatch
@@ -585,15 +602,31 @@ function DashboardContent() {
               }, {} as Record<string, Issue[]>)
               
               return Object.entries(groupedByRepo).map(([repoName, repoIssues]) => {
-                const repo = repositories.find(r => r.name === repoName)
+                const repo = repositories.find(r => r.full_name === repoName)
+                const isCollapsed = collapsedRepos.has(repoName)
                 return (
                   <div key={repoName} className="repository-section">
-                    <h3 className="repository-section-header">
+                    <h3 
+                      className="repository-section-header"
+                      onClick={() => {
+                        setCollapsedRepos(prev => {
+                          const newSet = new Set(prev)
+                          if (newSet.has(repoName)) {
+                            newSet.delete(repoName)
+                          } else {
+                            newSet.add(repoName)
+                          }
+                          return newSet
+                        })
+                      }}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      <span className={`expand-arrow ${isCollapsed ? '' : 'expanded'}`}>▶</span>
                       {repo?.full_name || repoName}
                       {repo?.is_public_dashboard && <span className="repo-badge-header">🌐 Public</span>}
                       <span className="issue-count-badge">{repoIssues.length}</span>
                     </h3>
-                    <div className="issues-list">
+                    {!isCollapsed && <div className="issues-list">
                       {repoIssues.map(issue => (
             <div key={issue.id} className="issue-card">
               <div className="issue-header">
@@ -611,7 +644,7 @@ function DashboardContent() {
               <div className="issue-meta">
                 <span className="repository">
                   {issue.repository}
-                  {repositories.find(r => r.name === issue.repository)?.is_public_dashboard && (
+                  {repositories.find(r => r.full_name === issue.repository)?.is_public_dashboard && (
                     <span className="repo-badge" title="Public Dashboard">🌐</span>
                   )}
                 </span>
@@ -720,7 +753,7 @@ function DashboardContent() {
               )}
             </div>
           ))}
-                    </div>
+                    </div>}
                   </div>
                 )
               })
@@ -744,7 +777,7 @@ function DashboardContent() {
               <div className="issue-meta">
                 <span className="repository">
                   {issue.repository}
-                  {repositories.find(r => r.name === issue.repository)?.is_public_dashboard && (
+                  {repositories.find(r => r.full_name === issue.repository)?.is_public_dashboard && (
                     <span className="repo-badge" title="Public Dashboard">🌐</span>
                   )}
                 </span>
