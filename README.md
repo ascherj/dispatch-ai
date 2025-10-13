@@ -246,9 +246,52 @@ python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 
+# Ensure services are running
+make dev
+
 # Run tests (from project root)
 ./scripts/send_webhook.sh              # Full webhook pipeline test
 ./scripts/test-correlation-tracing.sh  # Distributed tracing verification
+./scripts/test-dev-environment.sh      # Development environment health check
+```
+
+#### Available Test Scripts
+
+**`send_webhook.sh` - End-to-End Webhook Test**
+- Validates complete issue processing pipeline
+- Generates development JWT token and sends test GitHub webhook
+- Verifies issue storage, triggers AI classification, and displays statistics
+- Dev JWT uses `sub: '0'` with `dev_mode: true` (valid for 1 hour)
+
+**`test-correlation-tracing.sh` - Correlation ID Tracing Test**
+- Tests distributed tracing system using correlation IDs
+- Traces correlation ID through all service logs (ingress → classifier → gateway)
+- Verifies end-to-end request tracking across microservices
+
+**`test-dev-environment.sh` - Development Environment Health Check**
+- Validates all development services are running and healthy
+- Checks connectivity and basic functionality of core services
+
+#### Troubleshooting Tests
+
+**"ModuleNotFoundError: No module named 'jose'"**
+```bash
+pip install -r requirements.txt
+```
+
+**"Issue not found in API"**
+```bash
+# Check services are running
+docker ps
+
+# Verify gateway health
+curl http://localhost:8002/health
+
+# Check classifier logs
+docker logs dispatchai-classifier --tail 20
+
+# Verify database contents
+docker exec dispatchai-postgres psql -U postgres -d dispatchai -c "SELECT * FROM dispatchai.issues ORDER BY created_at DESC LIMIT 1;"
 ```
 
 ### Code Quality & Testing
