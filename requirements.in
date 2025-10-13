@@ -5,5 +5,9 @@
 #   - classifier/requirements.in
 #   - gateway/requirements.in
 
-# Test scripts (scripts/send_webhook.sh, scripts/test-correlation-tracing.sh)
+# Linting (make lint-python, make lint-fix)
+ruff>=0.14.0
+
+# Test scripts (scripts/send_webhook.sh, scripts/test-correlation-tracing.sh, scripts/test-dev-environment.sh)
 python-jose[cryptography]>=3.3.0
+websockets>=12.0

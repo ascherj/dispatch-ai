@@ -36,17 +36,30 @@ check_service() {
 # Function to check WebSocket connection
 check_websocket() {
     echo -n "Checking WebSocket connection... "
+    
+    # Use Python websockets package
+    python3 << 'EOF' 2>/dev/null
+import asyncio
+import websockets
+import sys
 
-    # Use websocat or fallback to a simple test
-    if command -v websocat >/dev/null 2>&1; then
-        echo "test" | timeout 3 websocat ws://localhost:8002/ws >/dev/null 2>&1
-        if [ $? -eq 0 ]; then
-            echo "✅ WebSocket working"
-        else
-            echo "⚠️  WebSocket connection test inconclusive"
-        fi
+async def test_ws():
+    try:
+        ws = await websockets.connect('ws://localhost:8002/ws', open_timeout=2)
+        await ws.close()
+        return True
+    except Exception:
+        return False
+
+result = asyncio.run(test_ws())
+sys.exit(0 if result else 1)
+EOF
+    
+    if [ $? -eq 0 ]; then
+        echo "✅ WebSocket working"
     else
-        echo "⚠️  websocat not installed, skipping WebSocket test"
+        echo "⚠️  WebSocket connection test failed"
+        echo "   Install websockets with: pip install -r requirements.txt"
     fi
 }
 
@@ -60,7 +73,7 @@ check_service "Dashboard (React frontend)" "http://localhost:3000"
 
 # Check database connectivity
 echo -n "Checking PostgreSQL database... "
-if docker exec auto-triager-postgres pg_isready -U postgres -d auto_triager >/dev/null 2>&1; then
+if docker exec dispatchai-postgres pg_isready -U postgres -d dispatchai >/dev/null 2>&1; then
     echo "✅ Ready"
 else
     echo "❌ Not ready"
@@ -80,13 +93,41 @@ check_websocket
 echo
 echo "🧪 Running API tests..."
 
-# Test API endpoints
-echo -n "Testing gateway API... "
-GATEWAY_RESPONSE=$(curl -s http://localhost:8002/api/stats)
-if echo "$GATEWAY_RESPONSE" | grep -q "total_issues"; then
-    echo "✅ API responding correctly"
+# Generate development JWT token for API authentication
+echo -n "Generating dev JWT token... "
+DEV_JWT=$(python3 -c "
+from jose import jwt
+import time
+payload = {
+    'sub': '0',
+    'username': 'dev_user',
+    'dev_mode': True,
+    'exp': int(time.time()) + 3600
+}
+token = jwt.encode(payload, 'dev-jwt-secret-change-in-production-to-secure-random-key', algorithm='HS256')
+print(token)
+" 2>/dev/null)
+
+if [ -n "$DEV_JWT" ]; then
+    echo "✅"
 else
-    echo "❌ API not responding as expected"
+    echo "❌ Failed to generate JWT (python-jose may not be installed)"
+    echo "   Install with: pip install python-jose[cryptography]"
+    echo "   Skipping authenticated API tests..."
+    DEV_JWT=""
+fi
+
+# Test API endpoints
+if [ -n "$DEV_JWT" ]; then
+    echo -n "Testing gateway API... "
+    GATEWAY_RESPONSE=$(curl -s -H "Authorization: Bearer $DEV_JWT" http://localhost:8002/api/stats)
+    if echo "$GATEWAY_RESPONSE" | grep -q "total_issues"; then
+        echo "✅ API responding correctly"
+    else
+        echo "❌ API not responding as expected"
+    fi
+else
+    echo "⚠️  Skipping gateway API test (no JWT token)"
 fi
 
 echo -n "Testing ingress health... "
