@@ -143,8 +143,12 @@ class TestGitHubWebhook:
         ).hexdigest()
         return f"sha256={signature}"
 
-    def test_health_endpoint(self, client):
+    @patch("app.check_kafka_connectivity")
+    def test_health_endpoint(self, mock_kafka_check, client):
         """Test health check endpoint"""
+        # Mock Kafka connectivity to return healthy
+        mock_kafka_check.return_value = {"status": "healthy", "latency_ms": 5}
+
         response = client.get("/health")
         assert response.status_code == 200
         data = response.json()
@@ -152,6 +156,9 @@ class TestGitHubWebhook:
         assert data["service"] == "ingress"
         assert data["version"] == "0.1.0"
         assert "timestamp" in data
+        assert "dependencies" in data
+        assert data["dependencies"]["kafka"]["status"] == "healthy"
+        assert "uptime_seconds" in data
 
     @patch.dict("os.environ", {"GITHUB_WEBHOOK_SECRET": "test_secret"})
     def test_signature_verification_success(self):
