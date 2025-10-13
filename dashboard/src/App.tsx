@@ -530,10 +530,11 @@ function DashboardContent() {
                 >
                   <option value="all">All Categories</option>
                   <option value="bug">Bug</option>
-                  <option value="feature">Feature</option>
+                  <option value="feature_request">Feature Request</option>
                   <option value="enhancement">Enhancement</option>
                   <option value="documentation">Documentation</option>
                   <option value="question">Question</option>
+                  <option value="security">Security</option>
                 </select>
               </div>
               
@@ -724,7 +725,7 @@ function DashboardContent() {
                       <option value="enhancement">Enhancement</option>
                       <option value="documentation">Documentation</option>
                       <option value="question">Question</option>
-                      <option value="duplicate">Duplicate</option>
+                      <option value="security">Security</option>
                     </select>
                   </div>
                   <div className="form-group">
@@ -857,7 +858,7 @@ function DashboardContent() {
                       <option value="enhancement">Enhancement</option>
                       <option value="documentation">Documentation</option>
                       <option value="question">Question</option>
-                      <option value="duplicate">Duplicate</option>
+                      <option value="security">Security</option>
                     </select>
                   </div>
                   <div className="form-group">
