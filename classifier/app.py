@@ -7,10 +7,12 @@ import os
 import json
 from typing import Dict, Any, List, Optional
 from datetime import datetime
+import time
+import asyncio
 
 import structlog
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
@@ -18,7 +20,6 @@ from langchain.prompts import PromptTemplate
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain.schema import HumanMessage
 from kafka import KafkaConsumer, KafkaProducer
-import asyncio
 import threading
 
 # Configure structured logging with INFO level
@@ -121,6 +122,61 @@ def get_kafka_producer():
     return kafka_producer
 
 
+async def check_database_connectivity() -> Dict[str, Any]:
+    """Check database connectivity and measure latency"""
+    start_time = time.time()
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1")
+        conn.close()
+        latency_ms = int((time.time() - start_time) * 1000)
+        return {"status": "healthy", "latency_ms": latency_ms}
+    except Exception as e:
+        latency_ms = int((time.time() - start_time) * 1000)
+        logger.warning(
+            "Database connectivity check failed", error=str(e), latency_ms=latency_ms
+        )
+        return {"status": "unhealthy", "latency_ms": latency_ms, "error": str(e)}
+
+
+async def check_kafka_connectivity() -> Dict[str, Any]:
+    """Check Kafka connectivity and measure latency"""
+    start_time = time.time()
+    try:
+        producer = get_kafka_producer()
+        # Send a test message to verify connectivity
+        future = producer.send("__test_topic", key="health_check", value={"test": True})
+        future.get(timeout=5)  # 5 second timeout
+        latency_ms = int((time.time() - start_time) * 1000)
+        return {"status": "healthy", "latency_ms": latency_ms}
+    except Exception as e:
+        latency_ms = int((time.time() - start_time) * 1000)
+        logger.warning(
+            "Kafka connectivity check failed", error=str(e), latency_ms=latency_ms
+        )
+        return {"status": "unhealthy", "latency_ms": latency_ms, "error": str(e)}
+
+
+async def check_openai_connectivity() -> Dict[str, Any]:
+    """Check OpenAI API connectivity and measure latency"""
+    if not OPENAI_API_KEY:
+        return {"status": "unhealthy", "error": "OpenAI API key not configured"}
+
+    start_time = time.time()
+    try:
+        # Simple test call to OpenAI API
+        llm.invoke([HumanMessage(content="Hello")])
+        latency_ms = int((time.time() - start_time) * 1000)
+        return {"status": "healthy", "latency_ms": latency_ms}
+    except Exception as e:
+        latency_ms = int((time.time() - start_time) * 1000)
+        logger.warning(
+            "OpenAI API connectivity check failed", error=str(e), latency_ms=latency_ms
+        )
+        return {"status": "unhealthy", "latency_ms": latency_ms, "error": str(e)}
+
+
 # Pydantic models
 class IssueData(BaseModel):
     id: int
@@ -149,7 +205,9 @@ class HealthResponse(BaseModel):
     status: str
     service: str
     version: str
-    ai_model: str
+    timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
+    dependencies: Dict[str, Any]
+    uptime_seconds: int
 
 
 # Environment configuration
@@ -223,12 +281,28 @@ Respond in JSON format:
 
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
-    """Health check endpoint"""
+    """Comprehensive health check endpoint with dependency verification"""
+    # Check all dependencies
+    database_status = await check_database_connectivity()
+    kafka_status = await check_kafka_connectivity()
+    openai_status = await check_openai_connectivity()
+
+    # Determine overall status - all dependencies must be healthy
+    dependencies = {
+        "database": database_status,
+        "kafka": kafka_status,
+        "openai_api": openai_status,
+    }
+
+    all_healthy = all(dep["status"] == "healthy" for dep in dependencies.values())
+    overall_status = "healthy" if all_healthy else "unhealthy"
+
     return HealthResponse(
-        status="healthy" if llm else "degraded",
+        status=overall_status,
         service="classifier",
         version="0.1.0",
-        ai_model="gpt-4o-mini" if llm else "none",
+        dependencies=dependencies,
+        uptime_seconds=metrics.get_uptime_seconds(),
     )
 
 

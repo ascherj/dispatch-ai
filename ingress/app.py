@@ -12,6 +12,7 @@ from typing import Dict, Any, Optional
 from datetime import datetime, timezone
 from collections import defaultdict
 
+
 import structlog
 from fastapi import FastAPI, Request, HTTPException, Header, status
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -283,7 +284,11 @@ class HealthResponse(BaseModel):
     status: str
     service: str
     version: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: str = Field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
+    dependencies: Dict[str, Any]
+    uptime_seconds: int
 
 
 # Environment configuration
@@ -316,6 +321,24 @@ def get_kafka_producer():
             logger.error("Failed to initialize Kafka producer", error=str(e))
             raise
     return kafka_producer
+
+
+async def check_kafka_connectivity() -> Dict[str, Any]:
+    """Check Kafka connectivity and measure latency"""
+    start_time = time.time()
+    try:
+        producer = get_kafka_producer()
+        # Send a test message to verify connectivity
+        future = producer.send("__test_topic", key="health_check", value={"test": True})
+        future.get(timeout=5)  # 5 second timeout
+        latency_ms = int((time.time() - start_time) * 1000)
+        return {"status": "healthy", "latency_ms": latency_ms}
+    except Exception as e:
+        latency_ms = int((time.time() - start_time) * 1000)
+        logger.warning(
+            "Kafka connectivity check failed", error=str(e), latency_ms=latency_ms
+        )
+        return {"status": "unhealthy", "latency_ms": latency_ms, "error": str(e)}
 
 
 def verify_github_signature(payload_body: bytes, signature_header: str) -> bool:
@@ -400,8 +423,21 @@ async def publish_to_kafka(
 
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
-    """Health check endpoint"""
-    return HealthResponse(status="healthy", service="ingress", version="0.1.0")
+    """Comprehensive health check endpoint with dependency verification"""
+    # Check Kafka connectivity
+    kafka_status = await check_kafka_connectivity()
+
+    # Determine overall status
+    dependencies = {"kafka": kafka_status}
+    overall_status = "healthy" if kafka_status["status"] == "healthy" else "unhealthy"
+
+    return HealthResponse(
+        status=overall_status,
+        service="ingress",
+        version="0.1.0",
+        dependencies=dependencies,
+        uptime_seconds=metrics.get_uptime_seconds(),
+    )
 
 
 @app.get("/metrics")

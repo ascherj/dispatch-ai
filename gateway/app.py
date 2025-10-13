@@ -8,6 +8,7 @@ import json
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 import asyncio
+import time
 
 import structlog
 from fastapi import (
@@ -21,7 +22,7 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import httpx
@@ -180,7 +181,9 @@ class HealthResponse(BaseModel):
     status: str
     service: str
     version: str
-    connected_clients: int
+    timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
+    dependencies: Dict[str, Any]
+    uptime_seconds: int
 
 
 class RepositoryResponse(BaseModel):
@@ -354,12 +357,28 @@ async def shutdown_event():
 
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
-    """Health check endpoint"""
+    """Comprehensive health check endpoint with dependency verification"""
+    # Check all dependencies
+    database_status = await check_database_connectivity()
+    kafka_status = await check_kafka_connectivity()
+    websocket_status = await check_websocket_server()
+
+    # Determine overall status - all dependencies must be healthy
+    dependencies = {
+        "database": database_status,
+        "kafka": kafka_status,
+        "websocket_server": websocket_status,
+    }
+
+    all_healthy = all(dep["status"] == "healthy" for dep in dependencies.values())
+    overall_status = "healthy" if all_healthy else "unhealthy"
+
     return HealthResponse(
-        status="healthy",
+        status=overall_status,
         service="gateway",
         version="0.1.0",
-        connected_clients=len(manager.active_connections),
+        dependencies=dependencies,
+        uptime_seconds=metrics.get_uptime_seconds(),
     )
 
 
@@ -1868,6 +1887,56 @@ class RobustKafkaConsumer:
         self.running = False
         if self.consumer:
             await asyncio.get_event_loop().run_in_executor(None, self.consumer.close)
+
+
+async def check_database_connectivity() -> Dict[str, Any]:
+    """Check database connectivity and measure latency"""
+    start_time = time.time()
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1")
+        conn.close()
+        latency_ms = int((time.time() - start_time) * 1000)
+        return {"status": "healthy", "latency_ms": latency_ms}
+    except Exception as e:
+        latency_ms = int((time.time() - start_time) * 1000)
+        logger.warning(
+            "Database connectivity check failed", error=str(e), latency_ms=latency_ms
+        )
+        return {"status": "unhealthy", "latency_ms": latency_ms, "error": str(e)}
+
+
+async def check_kafka_connectivity() -> Dict[str, Any]:
+    """Check Kafka connectivity and measure latency"""
+    start_time = time.time()
+    try:
+        # Create a temporary consumer to test connectivity
+        consumer = KafkaConsumer(
+            "__test_topic",
+            bootstrap_servers=[KAFKA_BOOTSTRAP_SERVERS],
+            group_id="health_check",
+            consumer_timeout_ms=5000,  # Short timeout
+            auto_offset_reset="earliest",
+        )
+        # Try to get metadata
+        consumer.topics()
+        consumer.close()
+        latency_ms = int((time.time() - start_time) * 1000)
+        return {"status": "healthy", "latency_ms": latency_ms}
+    except Exception as e:
+        latency_ms = int((time.time() - start_time) * 1000)
+        logger.warning(
+            "Kafka connectivity check failed", error=str(e), latency_ms=latency_ms
+        )
+        return {"status": "unhealthy", "latency_ms": latency_ms, "error": str(e)}
+
+
+async def check_websocket_server() -> Dict[str, Any]:
+    """Check WebSocket server status"""
+    # Simple check - if we have active connections, server is running
+    active_connections = len(manager.active_connections)
+    return {"status": "healthy", "active_connections": active_connections}
 
 
 if __name__ == "__main__":

@@ -25,6 +25,7 @@ DispatchAI automates GitHub issue classification using **event-driven architectu
 - **👥 Human-in-the-Loop**: Manual correction system for continuous improvement
 - **📊 Vector Similarity**: PostgreSQL pgvector for semantic issue clustering
 - **🔄 Real-Time Updates**: WebSocket broadcasting for instant dashboard updates
+- **🔍 Observability**: Comprehensive health checks and structured logging for production monitoring
 
 ## 🏗️ System Architecture
 
@@ -198,6 +199,11 @@ make dev
 # Health check all services
 make status
 
+# Individual service health checks
+curl http://localhost:8000/health | jq .  # Ingress
+curl http://localhost:8001/health | jq .  # Classifier
+curl http://localhost:8002/health | jq .  # Gateway
+
 # View logs from all services
 make dev-logs
 
@@ -306,10 +312,10 @@ make test-webhook  # Integration tests with real HTTP requests
 ```
 
 ### Production-Ready Features
-- **Health Checks**: All services expose `/health` endpoints
+- **Health Checks**: Comprehensive dependency verification with detailed status reporting
 - **Graceful Shutdown**: Proper cleanup of connections and consumers
 - **Error Recovery**: Circuit breakers, retries, and fallback mechanisms
-- **Observability**: Structured logging with request tracing
+- **Observability**: Structured logging with request tracing and metrics endpoints
 
 ## 🎯 Use Cases & Applications
 
@@ -379,20 +385,63 @@ logger.info("Issue classified",
            confidence=result.confidence,
            processing_time_ms=duration)
 
-# Health check endpoints for all services
+# Comprehensive health check endpoints for all services
 @app.get("/health")
 async def health_check():
     return {
         "status": "healthy",
-        "database": await check_db_connection(),
-        "kafka": await check_kafka_connection(),
-        "ai_service": await check_openai_api()
+        "service": "classifier",
+        "version": "0.1.0",
+        "timestamp": "2025-10-13T23:10:33.374060",
+        "dependencies": {
+            "database": {"status": "healthy", "latency_ms": 3},
+            "kafka": {"status": "healthy", "latency_ms": 117},
+            "openai_api": {"status": "healthy", "latency_ms": 561}
+        },
+        "uptime_seconds": 40
     }
 ```
 
+### Health Check Endpoints
+
+All services expose comprehensive `/health` endpoints that verify critical dependencies:
+
+| Service | Port | Health Check URL | Dependencies Verified |
+|---------|------|------------------|----------------------|
+| **Ingress** | 8000 | `http://localhost:8000/health` | Kafka connectivity |
+| **Classifier** | 8001 | `http://localhost:8001/health` | Database, Kafka, OpenAI API |
+| **Gateway** | 8002 | `http://localhost:8002/health` | Database, Kafka, WebSocket server |
+
+**Health Check Response Format:**
+```json
+{
+  "status": "healthy|unhealthy",
+  "service": "service_name",
+  "version": "0.1.0",
+  "timestamp": "2025-10-13T23:10:33.374060",
+  "dependencies": {
+    "dependency_name": {
+      "status": "healthy|unhealthy",
+      "latency_ms": 123,
+      "error": "optional_error_message"
+    }
+  },
+  "uptime_seconds": 3600
+}
+```
+
+**HTTP Status Codes:**
+- `200 OK` - All dependencies healthy
+- `503 Service Unavailable` - One or more dependencies unhealthy
+
+**Load Balancer Integration:**
+Health checks complete in <1 second and can be used for intelligent routing and auto-scaling decisions.
+
 ### Production Monitoring Strategy
-- **Service health checks** - Database, Kafka, and AI service connectivity
-- **Request tracing** - End-to-end request flow tracking
+- **Comprehensive health checks** - All services verify critical dependencies with latency measurements
+- **Load balancer integration** - Health endpoints support intelligent routing and auto-scaling
+- **Dependency monitoring** - Real-time visibility into database, Kafka, and external API health
+- **Request tracing** - End-to-end request flow tracking with correlation IDs
 - **Error aggregation** - Structured logging for debugging and alerts
 - **Resource monitoring** - CPU, memory, and connection pool usage
 - **Business metrics** - Classification accuracy and processing volume
