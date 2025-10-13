@@ -8,6 +8,23 @@ set -e
 echo "🚀 Sending GitHub Issue Webhook"
 echo "==============================="
 
+# Generate development JWT token for API authentication
+echo "🔐 Generating development JWT token..."
+DEV_JWT=$(python3 -c "
+from jose import jwt
+import time
+payload = {
+    'sub': '0',  # Subject must be a string
+    'username': 'dev_user',
+    'dev_mode': True,
+    'exp': int(time.time()) + 3600
+}
+token = jwt.encode(payload, 'dev-jwt-secret-change-in-production-to-secure-random-key', algorithm='HS256')
+print(token)
+")
+
+echo "✅ JWT token generated"
+
 # Get current timestamp
 CURRENT_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 ISSUE_NUMBER=$((RANDOM % 1000 + 100))  # Random issue number
@@ -101,7 +118,7 @@ if [ "$HTTP_STATUS" = "200" ]; then
     
     # Check if issue appears in API
     echo "🔍 Checking if issue appears in API..."
-    NEW_ISSUE=$(curl -s http://localhost:8002/api/issues | jq ".[] | select(.number == $ISSUE_NUMBER)")
+    NEW_ISSUE=$(curl -s -H "Authorization: Bearer $DEV_JWT" http://localhost:8002/api/issues | jq ".[] | select(.number == $ISSUE_NUMBER)")
     
     if [ -n "$NEW_ISSUE" ]; then
         echo "✅ Issue found in API!"
@@ -111,14 +128,14 @@ if [ "$HTTP_STATUS" = "200" ]; then
         ISSUE_ID=$(echo "$NEW_ISSUE" | jq -r '.id')
         echo ""
         echo "🤖 Triggering AI classification for issue ID: $ISSUE_ID..."
-        curl -s -X POST "http://localhost:8002/api/issues/$ISSUE_ID/classify" | jq '.'
+        curl -s -X POST -H "Authorization: Bearer $DEV_JWT" "http://localhost:8002/api/issues/$ISSUE_ID/classify" | jq '.'
         
         echo ""
         echo "⏳ Waiting 10 seconds for AI classification..."
         sleep 10
         
         echo "🔍 Checking classified result..."
-        CLASSIFIED=$(curl -s "http://localhost:8002/api/issues" | jq ".[] | select(.id == $ISSUE_ID)")
+        CLASSIFIED=$(curl -s -H "Authorization: Bearer $DEV_JWT" "http://localhost:8002/api/issues" | jq ".[] | select(.id == $ISSUE_ID)")
         echo "$CLASSIFIED" | jq '.'
         
         echo ""
@@ -130,7 +147,7 @@ if [ "$HTTP_STATUS" = "200" ]; then
         echo "   ✅ Issue classified and updated"
         echo ""
         echo "📊 Updated stats:"
-        curl -s http://localhost:8002/api/stats | jq '.'
+        curl -s -H "Authorization: Bearer $DEV_JWT" http://localhost:8002/api/stats | jq '.'
         echo ""
         echo "🌐 View in dashboard: http://localhost:3000"
         echo "💡 Try the Edit button to test manual corrections!"
@@ -138,7 +155,7 @@ if [ "$HTTP_STATUS" = "200" ]; then
     else
         echo "❌ Issue not found in API after 5 seconds"
         echo "📝 All issues currently in system:"
-        curl -s http://localhost:8002/api/issues | jq '.[] | {id, number, title, status}'
+        curl -s -H "Authorization: Bearer $DEV_JWT" http://localhost:8002/api/issues | jq '.[] | {id, number, title, status}'
     fi
     
 else

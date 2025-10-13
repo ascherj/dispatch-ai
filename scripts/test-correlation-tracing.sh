@@ -1,9 +1,12 @@
 #!/bin/bash
 
+# Detect script location and ensure we can find other scripts
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 echo "=== Testing Correlation ID Tracing ==="
 echo ""
 echo "Sending webhook..."
-RESPONSE=$(./send_webhook.sh 2>&1)
+RESPONSE=$($SCRIPT_DIR/send_webhook.sh 2>&1)
 echo "$RESPONSE"
 echo ""
 
