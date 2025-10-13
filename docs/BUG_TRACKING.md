@@ -13,6 +13,46 @@ This document tracks all bugs encountered during development, their root causes,
 
 ## Active Bugs
 
+### BUG-014: Dev JWT Authentication Filtering Issues
+- **Symptom**: `send_webhook.sh` test script successfully sends webhooks and issues are classified/stored in database, but API calls return empty arrays `[]` even though issues exist
+- **Root Cause**: Gateway `/api/issues` and `/api/stats` endpoints filter results by user's connected repositories. Dev JWT uses `sub: '0'` with `dev_mode: true` but has no repository connections in database, causing all queries to return empty despite issues existing
+- **Resolution**: Modified Gateway to detect `dev_mode: true` in JWT payload and skip repository filtering for development testing
+- **Status**: ✅ Fixed
+- **Impact**: High - End-to-end testing completely broken
+- **Date**: October 13, 2025
+- **Fix Applied**:
+  - Updated `gateway/app.py` `/api/issues` endpoint (lines 499-530) to check `current_user.get("dev_mode")` and skip repository access filtering when true
+  - Updated `gateway/app.py` `/api/stats` endpoint (lines 834-916) to check `dev_mode` and return statistics for all issues without filtering
+  - Changed WHERE clause from hardcoded user repository check to conditional: `"1=1"` when dev_mode, else user repository filtering
+  - Created `scripts/requirements.txt` with `python-jose[cryptography]` dependency for JWT generation in test scripts
+- **Prevention**: 
+  - Document dev JWT requirements in testing documentation
+  - Add dev mode checks to all endpoints that filter by user access
+  - Include integration tests that verify dev JWT bypasses access controls
+- **Verification**:
+  ```bash
+  # Install test script dependencies
+  pip install -r requirements.txt
+  
+  # Test full webhook pipeline with dev JWT
+  ./scripts/send_webhook.sh
+  # Should show:
+  # ✅ Webhook accepted
+  # ✅ Issue found in API
+  # ✅ AI classification triggered
+  # ✅ Full pipeline completed
+  
+  # Verify issue appears in API
+  python3 -c "from jose import jwt; import time; print(jwt.encode({'sub':'0','username':'dev_user','dev_mode':True,'exp':int(time.time())+3600}, 'dev-jwt-secret-change-in-production-to-secure-random-key', algorithm='HS256'))" | xargs -I {} curl -H "Authorization: Bearer {}" http://localhost:8002/api/issues | jq length
+  # Should return count > 0
+  ```
+- **Technical Details**: 
+  - Dev JWT payload: `{'sub': '0', 'username': 'dev_user', 'dev_mode': True, 'exp': timestamp}`
+  - JWT secret: `dev-jwt-secret-change-in-production-to-secure-random-key` (hardcoded in both script and Gateway)
+  - User ID `0` doesn't exist in `dispatchai.users` table and has no entries in `dispatchai.user_repositories`
+  - Production JWTs from auth service don't include `dev_mode` field, maintaining proper access controls
+  - Gateway checks `is_dev_mode = current_user.get("dev_mode", False)` defaulting to False for security
+
 ### BUG-003: Vector Similarity Search Type Error
 - **Symptom**: `operator does not exist: vector <-> numeric[]`
 - **Root Cause**: Embedding data type mismatch in similarity search queries
@@ -118,7 +158,7 @@ This document tracks all bugs encountered during development, their root causes,
 - **Verification**:
   ```bash
   # Send test webhook and check classification results
-  ./send_webhook.sh
+  ./scripts/send_webhook.sh
   # Should see proper AI values (high confidence, detailed tags) vs fallback values
   
   # Check logs for absence of parsing warnings
@@ -162,7 +202,7 @@ This document tracks all bugs encountered during development, their root causes,
 - **Prevention**: Create placeholder test directories/scripts or improve test target logic
 
 ### BUG-008: send_webhook.sh Issues Not Appearing in API Immediately
-- **Symptom**: When running `./send_webhook.sh`, webhook is accepted by ingress but issue doesn't appear in API after 5 seconds. Issues only appear after `make dev-down && make dev-up` restart cycle.
+- **Symptom**: When running `./scripts/send_webhook.sh`, webhook is accepted by ingress but issue doesn't appear in API after 5 seconds. Issues only appear after `make dev-down && make dev-up` restart cycle.
 - **Root Cause**: Kafka consumer in classifier service configured with `consumer_timeout_ms=1000`, causing consumer to stop after 1 second of inactivity. Consumer would process the first message after startup, then timeout and stop, requiring full service restart to process subsequent messages.
 - **Resolution**: Removed `consumer_timeout_ms=1000` parameter to keep consumer running indefinitely
 - **Status**: ✅ Fixed
@@ -205,7 +245,7 @@ This document tracks all bugs encountered during development, their root causes,
   docker exec dispatchai-ingress python -c "import logging; print('Log level:', logging.getLogger().getEffectiveLevel())"
 
   # Verify INFO logs appear after webhook
-  ./send_webhook.sh
+  ./scripts/send_webhook.sh
   docker logs dispatchai-ingress --tail 10 | grep INFO
   ```
 

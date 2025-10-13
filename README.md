@@ -236,6 +236,21 @@ make db-shell   # Direct PostgreSQL access for debugging
 make kafka-console TOPIC=issues.raw  # Debug Kafka message flow
 ```
 
+### Test Script Setup
+
+For end-to-end testing, create a virtual environment at the project root:
+
+```bash
+# One-time setup
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# Run tests (from project root)
+./scripts/send_webhook.sh              # Full webhook pipeline test
+./scripts/test-correlation-tracing.sh  # Distributed tracing verification
+```
+
 ### Code Quality & Testing
 ```bash
 # Comprehensive linting (Python + TypeScript)
@@ -245,7 +260,6 @@ make lint-fix   # Auto-fix formatting issues
 # Multi-layer testing strategy
 make test       # Unit tests (pytest + vitest)
 make test-webhook  # Integration tests with real HTTP requests
-./send_webhook.sh  # End-to-end workflow testing
 ```
 
 ### Production-Ready Features
