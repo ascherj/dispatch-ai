@@ -6,6 +6,7 @@ import LoginButton from './components/LoginButton'
 import RepositoryManager from './components/RepositoryManager'
 import AuthCallback from './components/AuthCallback'
 import WelcomePage from './components/WelcomePage'
+import ReactMarkdown from 'react-markdown'
 
 interface Issue {
   id: number
@@ -646,7 +647,9 @@ function DashboardContent() {
 
               {issue.body && (
                 <div className="issue-description">
-                  {issue.body.length > 200 ? `${issue.body.substring(0, 200)}...` : issue.body}
+                  <ReactMarkdown>
+                    {issue.body.length > 200 ? `${issue.body.substring(0, 200)}...` : issue.body}
+                  </ReactMarkdown>
                 </div>
               )}
 
@@ -793,7 +796,9 @@ function DashboardContent() {
 
               {issue.body && (
                 <div className="issue-description">
-                  {issue.body.length > 200 ? `${issue.body.substring(0, 200)}...` : issue.body}
+                  <ReactMarkdown>
+                    {issue.body.length > 200 ? `${issue.body.substring(0, 200)}...` : issue.body}
+                  </ReactMarkdown>
                 </div>
               )}
 
