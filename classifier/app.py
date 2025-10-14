@@ -255,7 +255,7 @@ embeddings = (
 CLASSIFICATION_PROMPT = PromptTemplate(
     input_variables=["title", "body", "repository"],
     template="""
-Analyze this GitHub issue and provide a classification:
+Analyze this GitHub issue and provide a comprehensive classification:
 
 Repository: {repository}
 Title: {title}
@@ -266,6 +266,11 @@ Please classify this issue with:
 2. Priority (low, medium, high, critical)
 3. Confidence score (0.0 to 1.0)
 4. Relevant tags (up to 5 descriptive tags)
+5. Summary (brief 1-2 sentence summary of the issue)
+6. Estimated effort (small, medium, large, extra-large)
+7. Severity (minor, major, critical, blocker)
+8. Component (frontend, backend, database, api, infrastructure, documentation, testing, etc.)
+9. Sentiment (frustrated, neutral, excited, confused, urgent, etc.)
 
 Respond in JSON format:
 {{
@@ -273,6 +278,11 @@ Respond in JSON format:
     "priority": "priority_level",
     "confidence": 0.95,
     "tags": ["tag1", "tag2", "tag3"],
+    "summary": "Brief summary of the issue",
+    "estimated_effort": "medium",
+    "severity": "minor",
+    "component": "frontend",
+    "sentiment": "neutral",
     "reasoning": "Brief explanation of classification"
 }}
 """,
