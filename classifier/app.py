@@ -63,9 +63,11 @@ class ServiceMetrics:
         self.issues_processed = 0
         self.openai_api_errors = 0
         self.classification_times_ms = []
+        self.last_successful_processing_time = None
 
     def record_issue_processed(self):
         self.issues_processed += 1
+        self.last_successful_processing_time = datetime.now()
 
     def record_openai_error(self):
         self.openai_api_errors += 1
@@ -97,6 +99,9 @@ class ServiceMetrics:
                 "p99": self.get_percentile(99),
             },
             "openai_api_errors": self.openai_api_errors,
+            "last_successful_processing_time": self.last_successful_processing_time.isoformat()
+            if self.last_successful_processing_time
+            else None,
             "uptime_seconds": self.get_uptime_seconds(),
         }
 

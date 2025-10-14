@@ -147,12 +147,14 @@ class ServiceMetrics:
         self.webhooks_rejected = 0
         self.kafka_publish_errors = 0
         self.processing_times_ms = []
+        self.last_successful_processing_time = None
 
     def record_webhook_received(self):
         self.webhooks_received += 1
 
     def record_webhook_accepted(self):
         self.webhooks_accepted += 1
+        self.last_successful_processing_time = time.time()
 
     def record_webhook_rejected(self):
         self.webhooks_rejected += 1
@@ -178,6 +180,8 @@ class ServiceMetrics:
         return int(time.time() - self.start_time)
 
     def to_dict(self) -> Dict[str, Any]:
+        from datetime import datetime
+
         return {
             "service": "ingress",
             "webhooks_received": self.webhooks_received,
@@ -189,6 +193,11 @@ class ServiceMetrics:
                 "p99": self.get_percentile(99),
             },
             "kafka_publish_errors": self.kafka_publish_errors,
+            "last_successful_processing_time": datetime.fromtimestamp(
+                self.last_successful_processing_time
+            ).isoformat()
+            if self.last_successful_processing_time
+            else None,
             "uptime_seconds": self.get_uptime_seconds(),
         }
 

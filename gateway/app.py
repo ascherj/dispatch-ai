@@ -103,9 +103,11 @@ class ServiceMetrics:
         self.messages_broadcast = 0
         self.api_requests = 0
         self.api_latencies_ms = []
+        self.last_successful_processing_time = None
 
     def record_message_broadcast(self):
         self.messages_broadcast += 1
+        self.last_successful_processing_time = datetime.now()
 
     def record_api_request(self):
         self.api_requests += 1
@@ -138,6 +140,9 @@ class ServiceMetrics:
                 "p95": self.get_percentile(95),
                 "p99": self.get_percentile(99),
             },
+            "last_successful_processing_time": self.last_successful_processing_time.isoformat()
+            if self.last_successful_processing_time
+            else None,
             "uptime_seconds": self.get_uptime_seconds(),
         }
 
@@ -425,6 +430,9 @@ async def get_public_repository_issues(
     limit: int = 50,
 ):
     """Get issues from a public repository (no auth required)"""
+    start_time = time.time()
+    metrics.record_api_request()
+
     try:
         conn = psycopg2.connect(DATABASE_URL)
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -500,11 +508,17 @@ async def get_public_repository_issues(
                 )
             )
 
+        latency_ms = (time.time() - start_time) * 1000
+        metrics.record_api_latency(latency_ms)
         return issues
 
     except HTTPException:
+        latency_ms = (time.time() - start_time) * 1000
+        metrics.record_api_latency(latency_ms)
         raise
     except Exception as e:
+        latency_ms = (time.time() - start_time) * 1000
+        metrics.record_api_latency(latency_ms)
         logger.error(
             "Error fetching public repository issues",
             owner=owner,
@@ -525,6 +539,9 @@ async def get_issues(
     """
     Get issues with optional filtering for authenticated user only
     """
+    start_time = time.time()
+    metrics.record_api_request()
+
     try:
         user_id = current_user["sub"]
         is_dev_mode = current_user.get("dev_mode", False)
@@ -609,9 +626,13 @@ async def get_issues(
                 )
             )
 
+        latency_ms = (time.time() - start_time) * 1000
+        metrics.record_api_latency(latency_ms)
         return issues
 
     except Exception as e:
+        latency_ms = (time.time() - start_time) * 1000
+        metrics.record_api_latency(latency_ms)
         logger.error("Error fetching issues", error=str(e))
         raise HTTPException(status_code=500, detail="Failed to fetch issues")
 
@@ -771,6 +792,9 @@ async def test_websocket():
 @app.get("/api/public/repos/{owner}/{repo}/stats")
 async def get_public_repository_stats(owner: str, repo: str):
     """Get statistics for a public repository (no auth required)"""
+    start_time = time.time()
+    metrics.record_api_request()
+
     try:
         conn = psycopg2.connect(DATABASE_URL)
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -839,7 +863,7 @@ async def get_public_repository_stats(owner: str, repo: str):
 
         conn.close()
 
-        return {
+        result = {
             "total_issues": counts["total_issues"],
             "classified_issues": counts["classified_issues"],
             "pending_issues": counts["pending_issues"],
@@ -851,7 +875,13 @@ async def get_public_repository_stats(owner: str, repo: str):
             ],
         }
 
+        latency_ms = (time.time() - start_time) * 1000
+        metrics.record_api_latency(latency_ms)
+        return result
+
     except HTTPException:
+        latency_ms = (time.time() - start_time) * 1000
+        metrics.record_api_latency(latency_ms)
         raise
     except Exception as e:
         logger.error(
