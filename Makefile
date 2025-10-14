@@ -246,11 +246,12 @@ build-service: ## Build specific service (usage: make build-service SERVICE=ingr
 
 # Database Management
 db-reset: ## Reset the development database with fresh schema
-	@echo "Resetting development database..."
+	@echo "Resetting development database and Kafka..."
 	@make dev-down
 	cd infra && docker volume rm infra_postgres_data 2>/dev/null || true
+	cd infra && docker volume rm infra_redpanda_data 2>/dev/null || true
 	@make dev-up
-	@echo "Development database reset complete"
+	@echo "Development database and Kafka reset complete"
 
 db-reset-prod: ## Reset the production database with fresh schema (DESTRUCTIVE!)
 	@echo "⚠️  WARNING: This will PERMANENTLY DELETE all production data!"
@@ -348,6 +349,15 @@ kafka-tail: ## Tail Kafka topic messages interactively (usage: make kafka-tail T
 	@echo "Tailing messages from topic: $(TOPIC)"
 	@echo "Press Ctrl+C to stop"
 	docker exec -it dispatchai-redpanda rpk topic consume $(TOPIC) --num 0
+
+kafka-reset-offsets: ## Reset consumer group offsets to end (skip old messages)
+	@echo "Resetting consumer group offsets to end..."
+	docker exec dispatchai-redpanda rpk group seek dispatchai-classifier --to end
+	@echo "✅ Consumer offsets reset - classifier will skip old messages"
+
+kafka-describe-group: ## Show consumer group status and lag
+	@echo "Consumer group status:"
+	docker exec dispatchai-redpanda rpk group describe dispatchai-classifier
 
 # Environment Setup
 setup-env: ## Set up development environment files

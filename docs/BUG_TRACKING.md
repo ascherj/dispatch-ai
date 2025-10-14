@@ -13,6 +13,65 @@ This document tracks all bugs encountered during development, their root causes,
 
 ## Active Bugs
 
+### BUG-017: Classifier Processing Stale Kafka Messages After Database Reset
+- **Symptom**: After running `make db-reset`, classifier processes 64 old messages from Kafka queue that reference issues no longer in the fresh database. Expensive OpenAI API calls are made before discovering issues don't exist.
+- **Root Cause**: 
+  1. `make db-reset` only removed PostgreSQL volume (`infra_postgres_data`), leaving Redpanda volume (`infra_redpanda_data`) intact
+  2. Redpanda persists messages (7-day retention) and consumer offsets in Docker volume
+  3. Classifier consumer group (`dispatchai-classifier`) resumed from last committed offset (167), with 64 messages remaining in queue (offset 231)
+  4. Classifier's `classify_issue()` made expensive API calls before checking if issue exists
+  5. Original check in `store_enriched_issue()` happened too late - after OpenAI classification and embedding generation
+- **Resolution**: 
+  1. Enhanced `make db-reset` to remove both PostgreSQL and Redpanda volumes
+  2. Added early idempotency check via `is_issue_already_enriched()` helper function
+  3. Check happens immediately after `store_raw_issue()`, before expensive OpenAI API calls
+  4. Added Kafka management commands for offset control
+- **Status**: ✅ Fixed
+- **Impact**: High - Wasted OpenAI API calls, confusion during development, potential cost impact
+- **Date**: October 14, 2025
+- **Fix Applied**:
+  - Updated `Makefile` line 248-254: `db-reset` now removes both `infra_postgres_data` and `infra_redpanda_data` volumes
+  - Added `classifier/app.py` lines 514-534: New `is_issue_already_enriched(github_issue_id)` helper function
+  - Updated `classifier/app.py` lines 356-367: Early exit check before expensive operations
+  - Added `Makefile` kafka-reset-offsets target: Quick command to skip old messages
+  - Added `Makefile` kafka-describe-group target: Check consumer group status and lag
+- **Technical Details**:
+  - **Before fix flow**: `store_raw_issue() → ai_classification() ($$$) → generate_embedding() ($$$) → store_enriched_issue() [check here - too late!]`
+  - **After fix flow**: `store_raw_issue() → is_issue_already_enriched() [check here!] → return early if enriched → skip all expensive operations`
+  - Consumer group state at time of discovery: offset 167/231, lag 64 messages
+  - Redpanda retention: 7 days (604800000 ms) for `issues.raw` topic
+  - Classifier uses `auto_offset_reset='earliest'` with `enable_auto_commit=True`
+  - Issue exists because `store_raw_issue()` uses `INSERT ... ON CONFLICT DO UPDATE`, always succeeding
+- **Prevention**:
+  - Always reset both database and Kafka together in development
+  - Implement early idempotency checks before expensive operations
+  - Use `make kafka-describe-group` to monitor consumer lag
+  - Consider event sourcing architecture where Kafka is source of truth
+- **Verification**:
+  ```bash
+  # Check consumer group status
+  make kafka-describe-group
+  # Should show: TOTAL-LAG 0
+  
+  # Verify idempotency - reprocessing same issue won't trigger API calls
+  # 1. Find enriched issue: make db-query SQL="SELECT github_issue_id FROM dispatchai.issues i JOIN dispatchai.enriched_issues ei ON i.id = ei.issue_id LIMIT 1;"
+  # 2. Check classifier logs when processing: docker logs dispatchai-classifier --tail 50 | grep "already enriched"
+  
+  # Reset only consumer offsets (skip old messages without volume deletion)
+  make kafka-reset-offsets
+  
+  # Complete reset (removes both volumes)
+  make db-reset
+  ```
+- **Cost Impact**: Estimated 64 duplicate OpenAI API calls avoided:
+  - Classification API calls: 64 × $0.0001 = $0.0064
+  - Embedding API calls: 64 × $0.00002 = $0.00128
+  - Total saved per incident: ~$0.008 (minimal but adds up with frequent resets)
+- **Development Workflow Impact**: 
+  - Developers can now safely run `make db-reset` without Kafka sync issues
+  - Idempotent processing allows safe message replay for testing
+  - Clear logging indicates when messages are skipped due to existing enrichment
+
 ### BUG-003: Vector Similarity Search Type Error
 - **Symptom**: `operator does not exist: vector <-> numeric[]`
 - **Root Cause**: Embedding data type mismatch in similarity search queries
@@ -28,6 +87,44 @@ This document tracks all bugs encountered during development, their root causes,
 ---
 
 ## Resolved Bugs
+
+### BUG-016: React-Markdown Import Error in Dashboard Container
+- **Symptom**: Dashboard container shows Vite error `Failed to resolve import "react-markdown" from "src/App.tsx". Does the file exist?` even though package is listed in `package.json` dependencies
+- **Root Cause**: Docker named volume (`dashboard_node_modules`) persisted stale `node_modules` contents from before `react-markdown` was added to dependencies. Volume mounts take precedence over image contents, so even rebuilding the image didn't help - the old volume masked the new packages.
+- **Resolution**: Removed stale Docker volume and rebuilt container to repopulate with correct dependencies
+- **Status**: ✅ Fixed
+- **Impact**: High - Dashboard completely broken with import errors
+- **Date**: October 14, 2025
+- **Fix Applied**:
+  - Removed stale volume: `docker volume rm infra_dashboard_node_modules`
+  - Rebuilt container: `docker compose up -d --build dashboard`
+  - Volume repopulated from fresh image with all dependencies including `react-markdown`
+- **Technical Details**:
+  - Named volumes persist across container rebuilds and restarts
+  - Volume population happens once when volume is first created, copying from image's `/app/node_modules`
+  - If image is rebuilt but volume already exists, volume contents take precedence (mount overwrites image)
+  - Build cache can compound the issue - even `--no-cache` rebuilds don't help if the volume is stale
+  - Solution requires removing the volume to force repopulation from rebuilt image
+- **Prevention**:
+  - When adding new npm dependencies, consider removing `node_modules` volume to force reinstall
+  - Document volume persistence behavior in development setup
+  - Consider using `docker compose down -v` to remove volumes during major dependency updates
+- **Verification**:
+  ```bash
+  # Verify package exists in container
+  docker compose exec dashboard ls node_modules | grep react-markdown
+  # Should return: react-markdown
+  
+  # Check dashboard logs for successful startup
+  docker compose logs dashboard --tail 20
+  # Should show: "VITE v7.0.4 ready in XXXms" with no import errors
+  ```
+- **Volume Purpose & Recommendations**:
+  - **Why the volume exists**: Named volume for `node_modules` improves performance on macOS/Windows where Docker file I/O is slow. Prevents npm packages from being shared between host and container via slow bind mount.
+  - **Performance benefit**: 10-100x faster file access for the thousands of small files in `node_modules`
+  - **Trade-off**: Adds complexity - dependencies aren't visible on host, volume can become stale
+  - **Recommendation**: **Keep the volume** for development - the performance benefit is significant. Just be aware of this edge case when adding dependencies and use `docker volume rm` when needed.
+  - **Alternative approach**: Some teams use `.dockerignore` for `node_modules` and rely on image layers only, but this loses the bind mount advantage for hot-reload during development.
 
 ### BUG-015: Duplicate Enriched Issues After Repository Resync
 - **Symptom**: When resyncing issues from connected repositories, duplicate issue cards appear in the frontend. Each resync creates additional enriched records for the same issues.
@@ -406,6 +503,12 @@ make kafka-console TOPIC=issues.enriched
 
 # Tail messages in real-time
 make kafka-tail TOPIC=issues.enriched
+
+# Check consumer group status and lag
+make kafka-describe-group
+
+# Reset consumer offsets to skip old messages
+make kafka-reset-offsets
 ```
 
 ### WebSocket Testing
@@ -475,9 +578,11 @@ docker exec dispatchai-redpanda rpk group describe dispatchai-gateway
 
 ### Common Error Patterns
 1. **Database Connection Issues**: Usually resolved with `make db-reset`
-2. **Kafka Consumer Lag**: Check consumer group status and restart consumers
-3. **WebSocket Connection Drops**: Verify network stability and connection timeouts
-4. **Hot-Reload Conflicts**: Restart development environment to clear state
+2. **Kafka Consumer Lag**: Check consumer group status with `make kafka-describe-group` and use `make kafka-reset-offsets` to skip old messages
+3. **Stale Kafka Messages After DB Reset**: Run `make db-reset` (resets both DB and Kafka) or `make kafka-reset-offsets` to skip old messages
+4. **Classifier Reprocessing Issues**: Check logs for "already enriched - skipping reprocessing" indicating idempotent behavior
+5. **WebSocket Connection Drops**: Verify network stability and connection timeouts
+6. **Hot-Reload Conflicts**: Restart development environment to clear state
 
 ### Best Practices
 - Always test fixes in development environment first
@@ -508,5 +613,5 @@ docker exec dispatchai-redpanda rpk group describe dispatchai-gateway
 
 ---
 
-*Last Updated: October 13, 2025*
+*Last Updated: October 14, 2025*
 *Next Review: Weekly during active development*

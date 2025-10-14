@@ -354,6 +354,17 @@ async def classify_issue(issue: IssueData):
         # Store raw issue in database
         await store_raw_issue(issue)
 
+        # Check if issue is already enriched (idempotency - skip expensive API calls)
+        if await is_issue_already_enriched(issue.id):
+            logger.info(
+                "Issue already enriched - skipping reprocessing",
+                issue_id=issue.id,
+                issue_number=issue.number,
+                repository=issue.repository,
+                reason="Idempotent processing - avoid duplicate OpenAI API calls",
+            )
+            return None
+
         # Perform classification
         if not llm:
             logger.warning("No LLM model available, using fallback classification")
@@ -500,6 +511,32 @@ def fallback_classification(issue: IssueData) -> Dict[str, Any]:
     }
 
 
+async def is_issue_already_enriched(github_issue_id: int) -> bool:
+    """Check if issue has already been enriched (for idempotency)"""
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT ei.id
+                FROM dispatchai.enriched_issues ei
+                JOIN dispatchai.issues i ON ei.issue_id = i.id
+                WHERE i.github_issue_id = %s
+            """,
+                (github_issue_id,),
+            )
+            result = cur.fetchone()
+        conn.close()
+        return result is not None
+    except Exception as e:
+        logger.error(
+            "Failed to check if issue is enriched",
+            github_issue_id=github_issue_id,
+            error=str(e),
+        )
+        return False
+
+
 async def store_raw_issue(issue: IssueData):
     """Store raw issue in database"""
     try:
@@ -537,6 +574,12 @@ async def store_raw_issue(issue: IssueData):
             )
         conn.commit()
         conn.close()
+        logger.info(
+            "Raw issue stored successfully",
+            issue_id=issue.id,
+            issue_number=issue.number,
+            repository=issue.repository,
+        )
     except Exception as e:
         logger.error("Failed to store raw issue", issue_id=issue.id, error=str(e))
 
@@ -561,7 +604,12 @@ async def store_enriched_issue(
             )
             result = cur.fetchone()
             if not result:
-                logger.error("Issue not found in database", github_issue_id=issue.id)
+                logger.error(
+                    "Issue not found in database for enrichment - should not happen",
+                    github_issue_id=issue.id,
+                    issue_number=issue.number,
+                    repository=issue.repository,
+                )
                 return
 
             internal_issue_id = result[0]
@@ -613,6 +661,13 @@ async def store_enriched_issue(
             )
         conn.commit()
         conn.close()
+        logger.info(
+            "Enriched issue stored successfully",
+            issue_id=issue.id,
+            internal_issue_id=internal_issue_id,
+            category=classification.get("category"),
+            priority=classification.get("priority"),
+        )
     except Exception as e:
         logger.error("Failed to store enriched issue", issue_id=issue.id, error=str(e))
 
@@ -808,14 +863,15 @@ async def process_kafka_message(message):
             author=issue_data.get("issue", {}).get("user", {}).get("login", ""),
         )
 
-        # Process the issue
+        # Process the issue (idempotent - safe to reprocess)
         await classify_issue(issue)
 
         bound_logger.info(
-            "Processed Kafka message",
+            "Processed Kafka message successfully",
             issue_id=issue.id,
             issue_number=issue.number,
             repository=issue.repository,
+            kafka_offset=message.offset,
         )
 
     except Exception as e:
@@ -825,6 +881,7 @@ async def process_kafka_message(message):
             error=str(e),
             message=message.value,
             correlation_id=error_correlation_id,
+            exc_info=True,
         )
 
 
