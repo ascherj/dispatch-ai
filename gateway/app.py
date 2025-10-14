@@ -150,6 +150,8 @@ class IssueResponse(BaseModel):
     id: int
     number: int
     title: str
+    body: Optional[str] = None
+    html_url: Optional[str] = None
     repository: str
     category: Optional[str] = None
     priority: Optional[str] = None
@@ -455,7 +457,7 @@ async def get_public_repository_issues(
 
             query = f"""
                 SELECT
-                    i.id, i.issue_number, i.title, i.repository_name, i.created_at, i.updated_at,
+                    i.id, i.issue_number, i.title, i.body, i.raw_data, i.repository_name, i.repository_owner, i.created_at, i.updated_at,
                     e.category, e.priority, e.confidence_score, e.tags
                 FROM dispatchai.issues i
                 LEFT JOIN dispatchai.enriched_issues e ON i.id = e.issue_id
@@ -472,11 +474,17 @@ async def get_public_repository_issues(
 
         issues = []
         for row in rows:
+            html_url = None
+            if row.get("raw_data"):
+                html_url = row["raw_data"].get("url")
+
             issues.append(
                 IssueResponse(
                     id=row["id"],
                     number=row["issue_number"],
                     title=row["title"],
+                    body=row.get("body"),
+                    html_url=html_url,
                     repository=f"{row['repository_owner']}/{row['repository_name']}",
                     category=row["category"],
                     priority=row["priority"],
@@ -557,7 +565,7 @@ async def get_issues(
 
             query = f"""
                 SELECT
-                    i.id, i.issue_number, i.title, i.repository_name, i.repository_owner, i.created_at, i.updated_at,
+                    i.id, i.issue_number, i.title, i.body, i.raw_data, i.repository_name, i.repository_owner, i.created_at, i.updated_at,
                     e.category, e.priority, e.confidence_score, e.tags
                 FROM dispatchai.issues i
                 LEFT JOIN dispatchai.enriched_issues e ON i.id = e.issue_id
@@ -575,11 +583,17 @@ async def get_issues(
         # Convert to response models
         issues = []
         for row in rows:
+            html_url = None
+            if row.get("raw_data"):
+                html_url = row["raw_data"].get("url")
+
             issues.append(
                 IssueResponse(
                     id=row["id"],
                     number=row["issue_number"],
                     title=row["title"],
+                    body=row.get("body"),
+                    html_url=html_url,
                     repository=f"{row['repository_owner']}/{row['repository_name']}",
                     category=row["category"],
                     priority=row["priority"],

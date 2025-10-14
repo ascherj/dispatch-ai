@@ -11,6 +11,8 @@ interface Issue {
   id: number
   number: number
   title: string
+  body?: string
+  html_url?: string
   repository: string
   category?: string
   priority?: string
@@ -642,6 +644,20 @@ function DashboardContent() {
 
               <h3 className="issue-title">{issue.title}</h3>
 
+              {issue.body && (
+                <div className="issue-description">
+                  {issue.body.length > 200 ? `${issue.body.substring(0, 200)}...` : issue.body}
+                </div>
+              )}
+
+              {issue.html_url && (
+                <div className="issue-link">
+                  <a href={issue.html_url} target="_blank" rel="noopener noreferrer">
+                    View on GitHub →
+                  </a>
+                </div>
+              )}
+
               <div className="issue-meta">
                 <span className="repository">
                   {issue.repository}
@@ -774,6 +790,20 @@ function DashboardContent() {
               </div>
 
               <h3 className="issue-title">{issue.title}</h3>
+
+              {issue.body && (
+                <div className="issue-description">
+                  {issue.body.length > 200 ? `${issue.body.substring(0, 200)}...` : issue.body}
+                </div>
+              )}
+
+              {issue.html_url && (
+                <div className="issue-link">
+                  <a href={issue.html_url} target="_blank" rel="noopener noreferrer">
+                    View on GitHub →
+                  </a>
+                </div>
+              )}
 
               <div className="issue-meta">
                 <span className="repository">
