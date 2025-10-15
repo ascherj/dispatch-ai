@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import './App.css'
 import { AuthProvider } from './contexts/AuthContext'
 import { useAuth } from './hooks/useAuth'
@@ -43,20 +43,13 @@ interface EditingIssue {
 
 // ClassificationUpdate interface removed - now handled by generic WebSocket messages
 
-interface Stats {
-  total_issues: number
-  classified_issues: number
-  pending_issues: number
-  connected_clients: number
-  categories: { name: string; count: number }[]
-  priorities: { name: string; count: number }[]
-}
+
 
 function DashboardContent() {
   const { isAuthenticated, isLoading: authLoading, token } = useAuth();
   const [issues, setIssues] = useState<Issue[]>([])
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('disconnected')
-  const [stats, setStats] = useState<Stats | null>(null)
+  const [connectedClients, setConnectedClients] = useState<number>(0)
   const [editingIssue, setEditingIssue] = useState<EditingIssue | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isDarkMode, setIsDarkMode] = useState(() => {
@@ -66,6 +59,49 @@ function DashboardContent() {
   const [activeTab, setActiveTab] = useState<'issues' | 'repositories'>('issues')
   const [repositories, setRepositories] = useState<Repository[]>([])
   const [selectedRepo, setSelectedRepo] = useState<string>('all')
+
+  // Calculate stats from issues array for real-time updates
+  const calculatedStats = useMemo(() => {
+    if (!issues.length) return null
+
+    const totalIssues = issues.length
+    const classifiedIssues = issues.filter(issue => issue.status === 'classified').length
+    const pendingIssues = totalIssues - classifiedIssues
+
+    // Calculate categories breakdown
+    const categoryCounts: { [key: string]: number } = {}
+    issues.forEach(issue => {
+      if (issue.category) {
+        categoryCounts[issue.category] = (categoryCounts[issue.category] || 0) + 1
+      }
+    })
+    const categories = Object.entries(categoryCounts)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count)
+
+    // Calculate priorities breakdown
+    const priorityCounts: { [key: string]: number } = {}
+    issues.forEach(issue => {
+      if (issue.priority) {
+        priorityCounts[issue.priority] = (priorityCounts[issue.priority] || 0) + 1
+      }
+    })
+    const priorities = Object.entries(priorityCounts)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => {
+        const order = { critical: 0, high: 1, medium: 2, low: 3 }
+        return (order[a.name as keyof typeof order] ?? 999) - (order[b.name as keyof typeof order] ?? 999)
+      })
+
+    return {
+      total_issues: totalIssues,
+      classified_issues: classifiedIssues,
+      pending_issues: pendingIssues,
+      connected_clients: connectedClients,
+      categories,
+      priorities
+    }
+  }, [issues, connectedClients])
 
   // Get unique repositories from issues for filtering
   const getUniqueRepositoriesFromIssues = () => {
@@ -248,7 +284,7 @@ function DashboardContent() {
       .then(data => setIssues(data))
       .catch(error => console.error('Error fetching issues:', error))
 
-    // Fetch stats
+    // Fetch initial connected_clients count only
     authenticatedFetch(`${apiUrl}/api/stats`)
       .then(res => {
         if (!res.ok) {
@@ -256,8 +292,8 @@ function DashboardContent() {
         }
         return res.json()
       })
-      .then(data => setStats(data))
-      .catch(error => console.error('Error fetching stats:', error))
+      .then(data => setConnectedClients(data.connected_clients))
+      .catch(error => console.error('Error fetching connected clients:', error))
 
     // Fetch user repositories
     authenticatedFetch(`${apiUrl}/auth/user/repositories`)
@@ -269,6 +305,26 @@ function DashboardContent() {
       })
       .then(data => setRepositories(data))
       .catch(error => console.error('Error fetching repositories:', error))
+  }, [isAuthenticated, token, authenticatedFetch])
+
+  // Periodic refresh for connected_clients
+  useEffect(() => {
+    if (!isAuthenticated || !token) return
+
+    const interval = setInterval(() => {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8002'
+      authenticatedFetch(`${apiUrl}/api/stats`)
+        .then(res => {
+          if (!res.ok) {
+            throw new Error(`HTTP ${res.status}: ${res.statusText}`)
+          }
+          return res.json()
+        })
+        .then(data => setConnectedClients(data.connected_clients))
+        .catch(error => console.error('Error fetching connected clients:', error))
+    }, 30000) // Refresh every 30 seconds
+
+    return () => clearInterval(interval)
   }, [isAuthenticated, token, authenticatedFetch])
 
   // Theme persistence effect
@@ -418,37 +474,37 @@ function DashboardContent() {
         </div>
       </header>
 
-      {stats && (
+      {calculatedStats && (
         <div className="stats-grid">
           <div className="stat-card">
             <h3>Total Issues</h3>
-            <p className="stat-number">{stats.total_issues}</p>
+            <p className="stat-number">{calculatedStats.total_issues}</p>
           </div>
           <div className="stat-card">
             <h3>Classified</h3>
-            <p className="stat-number">{stats.classified_issues}</p>
+            <p className="stat-number">{calculatedStats.classified_issues}</p>
           </div>
           <div className="stat-card">
             <h3>Pending</h3>
-            <p className="stat-number">{stats.pending_issues}</p>
+            <p className="stat-number">{calculatedStats.pending_issues}</p>
           </div>
           <div className="stat-card">
             <h3>Connected Clients</h3>
-            <p className="stat-number">{stats.connected_clients}</p>
+            <p className="stat-number">{calculatedStats.connected_clients}</p>
           </div>
         </div>
       )}
 
-      {stats && (stats.categories.length > 0 || stats.priorities.length > 0) && (
+      {calculatedStats && (calculatedStats.categories.length > 0 || calculatedStats.priorities.length > 0) && (
         <div className="analytics-container">
           <h2>Analytics</h2>
           <div className="charts-grid">
-            {stats.categories.length > 0 && (
+            {calculatedStats.categories.length > 0 && (
               <div className="chart-card">
                 <h3>Categories</h3>
                 <div className="chart">
-                  {stats.categories.map((category) => {
-                    const percentage = stats.total_issues > 0 ? (category.count / stats.total_issues) * 100 : 0
+                  {calculatedStats.categories.map((category) => {
+                    const percentage = calculatedStats.total_issues > 0 ? (category.count / calculatedStats.total_issues) * 100 : 0
                     return (
                       <div key={category.name} className="chart-bar">
                         <div className="bar-label">
@@ -469,12 +525,12 @@ function DashboardContent() {
               </div>
             )}
 
-            {stats.priorities.length > 0 && (
+            {calculatedStats.priorities.length > 0 && (
               <div className="chart-card">
                 <h3>Priorities</h3>
                 <div className="chart">
-                  {stats.priorities.map((priority) => {
-                    const percentage = stats.total_issues > 0 ? (priority.count / stats.total_issues) * 100 : 0
+                  {calculatedStats.priorities.map((priority) => {
+                    const percentage = calculatedStats.total_issues > 0 ? (priority.count / calculatedStats.total_issues) * 100 : 0
                     const priorityColor = getPriorityColor(priority.name)
                     return (
                       <div key={priority.name} className="chart-bar">
