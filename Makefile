@@ -261,6 +261,8 @@ db-reset-prod: ## Reset the production database with fresh schema (DESTRUCTIVE!)
 	docker-compose -f docker-compose.prod.yml --env-file .env.prod down
 	@echo "Removing production database volume..."
 	docker volume rm dispatchai_postgres_data 2>/dev/null || true
+	@echo "Removing production Redpanda volume..."
+	docker volume rm dispatchai_redpanda_data 2>/dev/null || true
 	@echo "Starting production services..."
 	docker-compose -f docker-compose.prod.yml --env-file .env.prod up -d
 	@echo "Production database reset complete"
