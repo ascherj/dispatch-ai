@@ -1,7 +1,7 @@
 # DispatchAI Development Makefile
 # Provides targets for development, testing, linting, and deployment
 
-.PHONY: help dev dev-up dev-down dev-logs dev-clean test test-docker test-ingress test-classifier test-gateway test-dashboard test-classifier-docker test-gateway-docker test-dashboard-docker lint lint-python lint-python-docker lint-js clean build setup-env check-env check-containers test-webhook-manual kafka-tail
+.PHONY: help dev dev-up dev-down dev-logs dev-clean test test-docker test-ingress test-classifier test-gateway test-dashboard test-classifier-docker test-gateway-docker test-dashboard-docker lint lint-python lint-python-docker lint-js clean build setup-env check-env check-containers test-webhook-manual demo kafka-tail health health-ingress health-classifier health-gateway metrics metrics-ingress metrics-classifier metrics-gateway metrics-summary watch-metrics system-status
 
 # Default target
 help: ## Show this help message
@@ -48,24 +48,116 @@ dev-clean: ## Stop services and remove volumes/networks
 	@echo "Pruning unused Docker resources..."
 	docker system prune -f
 
-# Health Checks
+# Health Checks & Metrics
 check-services: ## Check if all services are healthy
 	@echo "Checking service health..."
-	@echo -n "PostgreSQL: "
-	@docker exec dispatchai-postgres pg_isready -U postgres >/dev/null 2>&1 && echo "✅ Ready" || echo "❌ Not Ready"
-	@echo -n "Redpanda: "
-	@curl -s http://localhost:9644/v1/cluster/health >/dev/null 2>&1 && echo "✅ Ready" || echo "❌ Not Ready"
+	@printf "PostgreSQL: " && docker exec dispatchai-postgres pg_isready -U postgres >/dev/null 2>&1 && echo "✅ Ready" || echo "❌ Not Ready"
+	@printf "Redpanda: " && curl -s http://localhost:9644/v1/cluster/health >/dev/null 2>&1 && echo "✅ Ready" || echo "❌ Not Ready"
 
 check-containers: ## Check if all containers are running
 	@echo "Checking containers..."
-	@echo -n "Ingress: "
-	@docker ps --format "table {{.Names}}" | grep -q "dispatchai-ingress" && echo "✅ Running" || echo "❌ Not Running"
-	@echo -n "Classifier: "
-	@docker ps --format "table {{.Names}}" | grep -q "dispatchai-classifier" && echo "✅ Running" || echo "❌ Not Running"
-	@echo -n "Gateway: "
-	@docker ps --format "table {{.Names}}" | grep -q "dispatchai-gateway" && echo "✅ Running" || echo "❌ Not Running"
-	@echo -n "Dashboard: "
-	@docker ps --format "table {{.Names}}" | grep -q "dispatchai-dashboard" && echo "✅ Running" || echo "❌ Not Running"
+	@printf "Ingress: " && docker ps --format "table {{.Names}}" | grep -q "dispatchai-ingress" && echo "✅ Running" || echo "❌ Not Running"
+	@printf "Classifier: " && docker ps --format "table {{.Names}}" | grep -q "dispatchai-classifier" && echo "✅ Running" || echo "❌ Not Running"
+	@printf "Gateway: " && docker ps --format "table {{.Names}}" | grep -q "dispatchai-gateway" && echo "✅ Running" || echo "❌ Not Running"
+	@printf "Dashboard: " && docker ps --format "table {{.Names}}" | grep -q "dispatchai-dashboard" && echo "✅ Running" || echo "❌ Not Running"
+
+health: ## Show detailed health status of all services
+	@echo "======================================"
+	@echo "DispatchAI System Health Report"
+	@echo "======================================"
+	@echo ""
+	@echo "📊 Ingress Service (Port 8000):"
+	@curl -s http://localhost:8000/health 2>/dev/null | python3 -m json.tool || echo "❌ Service unreachable"
+	@echo ""
+	@echo "🤖 Classifier Service (Port 8001):"
+	@curl -s http://localhost:8001/health 2>/dev/null | python3 -m json.tool || echo "❌ Service unreachable"
+	@echo ""
+	@echo "🔗 Gateway Service (Port 8002):"
+	@curl -s http://localhost:8002/health 2>/dev/null | python3 -m json.tool || echo "❌ Service unreachable"
+	@echo ""
+
+health-ingress: ## Show health status of ingress service
+	@echo "Ingress Service Health:"
+	@curl -s http://localhost:8000/health | python3 -m json.tool
+
+health-classifier: ## Show health status of classifier service
+	@echo "Classifier Service Health:"
+	@curl -s http://localhost:8001/health | python3 -m json.tool
+
+health-gateway: ## Show health status of gateway service
+	@echo "Gateway Service Health:"
+	@curl -s http://localhost:8002/health | python3 -m json.tool
+
+metrics: ## Show comprehensive metrics from all services
+	@echo "======================================"
+	@echo "DispatchAI System Metrics Report"
+	@echo "======================================"
+	@echo ""
+	@echo "📊 Ingress Service Metrics:"
+	@curl -s http://localhost:8000/metrics 2>/dev/null | python3 -m json.tool || echo "❌ Metrics unavailable"
+	@echo ""
+	@echo "🤖 Classifier Service Metrics:"
+	@curl -s http://localhost:8001/metrics 2>/dev/null | python3 -m json.tool || echo "❌ Metrics unavailable"
+	@echo ""
+	@echo "🔗 Gateway Service Metrics:"
+	@curl -s http://localhost:8002/metrics 2>/dev/null | python3 -m json.tool || echo "❌ Metrics unavailable"
+	@echo ""
+	@echo "📡 Kafka Consumer Lag:"
+	@docker exec dispatchai-redpanda rpk group describe dispatchai-classifier 2>/dev/null || echo "❌ Consumer group not found"
+	@echo ""
+
+metrics-ingress: ## Show metrics for ingress service
+	@echo "Ingress Service Metrics:"
+	@curl -s http://localhost:8000/metrics | python3 -m json.tool
+
+metrics-classifier: ## Show metrics for classifier service
+	@echo "Classifier Service Metrics:"
+	@curl -s http://localhost:8001/metrics | python3 -m json.tool
+
+metrics-gateway: ## Show metrics for gateway service
+	@echo "Gateway Service Metrics:"
+	@curl -s http://localhost:8002/metrics | python3 -m json.tool
+
+metrics-summary: ## Show quick metrics summary (perfect for demos)
+	@echo "======================================"
+	@echo "📊 DispatchAI Metrics Summary"
+	@echo "======================================"
+	@echo ""
+	@echo "Ingress (Webhook Processing):"
+	@curl -s http://localhost:8000/metrics 2>/dev/null | python3 -c "import sys, json; d=json.load(sys.stdin); print(f\"  Webhooks Received: {d.get('webhooks_received', 0)}\"); print(f\"  Webhooks Accepted: {d.get('webhooks_accepted', 0)}\"); print(f\"  Processing Time (p95): {d.get('processing_time_ms', {}).get('p95', 'N/A')}ms\"); print(f\"  Uptime: {d.get('uptime_seconds', 0)}s\")" || echo "  ❌ Unavailable"
+	@echo ""
+	@echo "Classifier (AI Processing):"
+	@curl -s http://localhost:8001/metrics 2>/dev/null | python3 -c "import sys, json; d=json.load(sys.stdin); print(f\"  Issues Processed: {d.get('issues_processed', 0)}\"); print(f\"  Classification Time (p95): {d.get('classification_time_ms', {}).get('p95', 'N/A')}ms\"); print(f\"  OpenAI Errors: {d.get('openai_api_errors', 0)}\"); print(f\"  Consumer Lag: {d.get('consumer_lag', 0)}\"); print(f\"  Uptime: {d.get('uptime_seconds', 0)}s\")" || echo "  ❌ Unavailable"
+	@echo ""
+	@echo "Gateway (WebSocket Streaming):"
+	@curl -s http://localhost:8002/metrics 2>/dev/null | python3 -c "import sys, json; d=json.load(sys.stdin); print(f\"  Active WebSocket Connections: {d.get('websocket_connections_active', 0)}\"); print(f\"  Messages Broadcast: {d.get('messages_broadcast', 0)}\"); print(f\"  API Requests: {d.get('api_requests', 0)}\"); print(f\"  Uptime: {d.get('uptime_seconds', 0)}s\")" || echo "  ❌ Unavailable"
+	@echo ""
+
+watch-metrics: ## Watch metrics in real-time (refreshes every 3 seconds)
+	@echo "Watching metrics (Ctrl+C to stop)..."
+	@while true; do \
+		clear; \
+		make metrics-summary; \
+		sleep 3; \
+	done
+
+system-status: ## Show complete system status (containers + health + metrics)
+	@echo "======================================"
+	@echo "🚀 DispatchAI System Status Report"
+	@echo "======================================"
+	@echo ""
+	@echo "📦 Container Status:"
+	@make check-containers
+	@echo ""
+	@echo "💚 Service Health:"
+	@make check-services
+	@echo ""
+	@echo "📈 Performance Metrics:"
+	@make metrics-summary
+	@echo ""
+	@echo "======================================"
+	@echo "✅ System Status Report Complete"
+	@echo "======================================"
 
 # Testing
 test: ## Run all tests (requires running containers)
@@ -174,6 +266,14 @@ test-webhook-manual: ## Run manual webhook testing script
 		./scripts/test-webhook-manual.sh; \
 	else \
 		echo "❌ Manual test script not found at scripts/test-webhook-manual.sh"; \
+	fi
+
+demo: ## Run comprehensive system showcase demo (perfect for interviews!)
+	@echo "🎯 Running DispatchAI System Showcase Demo..."
+	@if [ -f scripts/demo-system-showcase.sh ]; then \
+		./scripts/demo-system-showcase.sh; \
+	else \
+		echo "❌ Demo script not found at scripts/demo-system-showcase.sh"; \
 	fi
 
 # Linting
