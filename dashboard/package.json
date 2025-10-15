@@ -11,6 +11,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.90.3",
+    "@tanstack/react-query-devtools": "^5.90.2",
     "@types/node": "^24.0.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",

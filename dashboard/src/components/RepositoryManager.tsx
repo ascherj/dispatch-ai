@@ -1,141 +1,245 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
+import {
+  useOrganizations,
+  useOrganizationRepositories,
+  useConnectRepository,
+  useDisconnectRepository,
+  useSyncRepository,
+  type Organization,
+  type Repository,
+} from '../hooks/useRepositories';
 
-interface Repository {
-  owner: string;
-  name: string;
-  full_name: string;
-  permissions: {
-    admin: boolean;
-    push: boolean;
-    pull: boolean;
-  };
-  connected: boolean;
-  last_sync_at?: string;
-  issues_synced: number;
-  sync_status?: string;
+// OrganizationCard component
+interface OrganizationCardProps {
+  organization: Organization;
+  isExpanded: boolean;
+  onToggle: () => void;
+  searchTerm: string;
+  connectionFilter: 'all' | 'connected' | 'not-connected';
+  permissionFilter: 'all' | 'admin' | 'push' | 'pull';
+  onConnectRepository: (repo: Repository, orgLogin: string) => void;
+  onDisconnectRepository: (repo: Repository, orgLogin: string) => void;
+  onSyncRepository: (repo: Repository, orgLogin: string) => void;
+  connectingRepos: Set<string>;
+  disconnectingRepos: Set<string>;
+  syncingRepos: Set<string>;
+  getSyncStatusColor: (status?: string) => string;
+  formatLastSync: (dateString?: string) => string;
 }
 
-interface Organization {
-  id: number;
-  login: string;
-  name?: string;
-  description?: string;
-  avatar_url: string;
-  html_url: string;
-  type: string; // "Organization" or "User"
-  public_repos: number;
-  total_private_repos?: number;
-  accessible_repos?: number;
-}
+const OrganizationCard: React.FC<OrganizationCardProps> = ({
+  organization,
+  isExpanded,
+  onToggle,
+  searchTerm,
+  connectionFilter,
+  permissionFilter,
+  onConnectRepository,
+  onDisconnectRepository,
+  onSyncRepository,
+  connectingRepos,
+  disconnectingRepos,
+  syncingRepos,
+  getSyncStatusColor,
+  formatLastSync,
+}) => {
+  const { data: orgReposData, isLoading: isLoadingRepos, error: reposError } = useOrganizationRepositories(
+    organization.login,
+    isExpanded
+  );
 
-interface OrganizationRepositories {
-  organization: string;
-  repositories: Repository[];
-}
+  const repos = orgReposData?.repositories || [];
 
-interface SyncResult {
-  success: boolean;
-  issues_fetched: number;
-  issues_stored: number;
-  error_message?: string;
-}
+  // Filter repositories based on current filter state
+  const filteredRepos = repos.filter(repo => {
+    // Search filter
+    const searchMatch = searchTerm === '' ||
+      repo.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      repo.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      repo.owner.toLowerCase().includes(searchTerm.toLowerCase());
 
-interface ConnectResult {
-  success: boolean;
-  message: string;
-  repository?: Repository;
-}
+    // Connection filter
+    const connectionMatch = connectionFilter === 'all' ||
+      (connectionFilter === 'connected' && repo.connected) ||
+      (connectionFilter === 'not-connected' && !repo.connected);
 
-interface DisconnectResult {
-  success: boolean;
-  message: string;
-}
+    // Permission filter
+    const permissionMatch = permissionFilter === 'all' ||
+      (permissionFilter === 'admin' && repo.permissions.admin) ||
+      (permissionFilter === 'push' && repo.permissions.push) ||
+      (permissionFilter === 'pull' && repo.permissions.pull);
+
+    return searchMatch && connectionMatch && permissionMatch;
+  });
+
+  // Don't render if no filtered repos and there's a search term
+  if (searchTerm && filteredRepos.length === 0) {
+    return null;
+  }
+
+  return (
+    <div
+      className="organization-card"
+      data-expanded={isExpanded}
+    >
+      <div
+        className="organization-header"
+        onClick={onToggle}
+        style={{ cursor: 'pointer' }}
+      >
+        <div className="organization-info">
+          <img
+            src={organization.avatar_url}
+            alt={`${organization.login} avatar`}
+            className="organization-avatar"
+            width="32"
+            height="32"
+          />
+          <div className="organization-details">
+            <h3 className="organization-name">
+              {organization.name || organization.login}
+              <span className="organization-type">({organization.type})</span>
+            </h3>
+            <p className="organization-description">
+              {organization.description || `${organization.accessible_repos ?? organization.public_repos} accessible repositories`}
+            </p>
+          </div>
+        </div>
+        <div className="organization-expand">
+          <span className={`expand-arrow ${isExpanded ? 'expanded' : ''}`}>
+            ▶
+          </span>
+          <span className="repo-count">{organization.accessible_repos ?? organization.public_repos} repos</span>
+        </div>
+      </div>
+
+      {isExpanded && (
+        <div className="organization-repositories">
+          {isLoadingRepos ? (
+            <div className="loading-container">
+              <div className="loading-spinner"></div>
+              <p>Loading repositories...</p>
+            </div>
+          ) : reposError ? (
+            <div className="error-message">
+              Failed to load repositories: {reposError.message}
+            </div>
+          ) : filteredRepos.length === 0 ? (
+            <div className="no-repositories">
+              <p>No accessible repositories found in this organization.</p>
+            </div>
+          ) : (
+            <div className="repositories-list">
+              {filteredRepos.map((repo) => {
+                const repoKey = `${repo.owner}/${repo.name}`;
+                const isSyncing = syncingRepos.has(repoKey);
+                const isConnecting = connectingRepos.has(repoKey);
+                const isDisconnecting = disconnectingRepos.has(repoKey);
+                const isConnected = repo.connected;
+
+                return (
+                  <div key={repo.full_name} className="repository-card">
+                    <div className="repository-header">
+                      <h4 className="repository-name">{repo.full_name}</h4>
+                      <div className="repository-permissions">
+                        {repo.permissions.admin && <span className="permission-badge admin">Admin</span>}
+                        {repo.permissions.push && <span className="permission-badge push">Push</span>}
+                        {repo.permissions.pull && <span className="permission-badge pull">Pull</span>}
+                      </div>
+                    </div>
+
+                    <div className="repository-stats">
+                      <div className="stat">
+                        <span className="stat-label">Connection:</span>
+                        <span className={`stat-value connection-status ${isConnected ? 'connected' : 'not-connected'}`}>
+                          {isConnected ? 'Connected' : 'Not Connected'}
+                        </span>
+                      </div>
+                      <div className="stat">
+                        <span className="stat-label">Last Sync:</span>
+                        <span className="stat-value">{formatLastSync(repo.last_sync_at)}</span>
+                      </div>
+                      <div className="stat">
+                        <span className="stat-label">Issues Synced:</span>
+                        <span className="stat-value">{repo.issues_synced}</span>
+                      </div>
+                      {repo.sync_status && (
+                        <div className="stat">
+                          <span className="stat-label">Sync Status:</span>
+                          <span
+                            className="sync-status"
+                            style={{ color: getSyncStatusColor(repo.sync_status) }}
+                          >
+                            {repo.sync_status}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="repository-actions">
+                      {!isConnected ? (
+                        <button
+                          onClick={() => onConnectRepository(repo, organization.login)}
+                          disabled={isConnecting}
+                          className="connect-btn"
+                        >
+                          {isConnecting ? 'Connecting...' : 'Connect Repository'}
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => onSyncRepository(repo, organization.login)}
+                            disabled={isSyncing || repo.sync_status === 'syncing'}
+                            className="sync-btn"
+                          >
+                            {isSyncing ? 'Syncing...' : 'Sync Issues'}
+                          </button>
+                          <button
+                            onClick={() => onDisconnectRepository(repo, organization.login)}
+                            disabled={isDisconnecting}
+                            className="disconnect-btn"
+                          >
+                            {isDisconnecting ? 'Disconnecting...' : 'Disconnect'}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const RepositoryManager: React.FC = () => {
-  const { token, isAuthenticated } = useAuth();
-  const [organizations, setOrganizations] = useState<Organization[]>([]);
-  const [organizationRepos, setOrganizationRepos] = useState<Map<string, Repository[]>>(new Map());
+  const { isAuthenticated } = useAuth();
+
+  // React Query hooks
+  const {
+    data: organizations = [],
+    isLoading: isLoadingOrgs,
+    error: orgsError,
+    refetch: refetchOrganizations
+  } = useOrganizations();
+
+  const connectRepoMutation = useConnectRepository();
+  const disconnectRepoMutation = useDisconnectRepository();
+  const syncRepoMutation = useSyncRepository();
+
+  // Local UI state
   const [expandedOrgs, setExpandedOrgs] = useState<Set<string>>(new Set());
-  const [isLoadingOrgs, setIsLoadingOrgs] = useState(false);
-  const [loadingRepos, setLoadingRepos] = useState<Set<string>>(new Set());
-  const [error, setError] = useState<string | null>(null);
-  const [syncingRepos, setSyncingRepos] = useState<Set<string>>(new Set());
-  const [connectingRepos, setConnectingRepos] = useState<Set<string>>(new Set());
-  const [disconnectingRepos, setDisconnectingRepos] = useState<Set<string>>(new Set());
 
   // Filtering state
   const [searchTerm, setSearchTerm] = useState('');
   const [connectionFilter, setConnectionFilter] = useState<'all' | 'connected' | 'not-connected'>('all');
   const [permissionFilter, setPermissionFilter] = useState<'all' | 'admin' | 'push' | 'pull'>('all');
 
-  const fetchOrganizations = useCallback(async () => {
-    if (!isAuthenticated || !token) return;
-
-    setIsLoadingOrgs(true);
-    setError(null);
-
-    try {
-      const gatewayUrl = import.meta.env.VITE_API_URL || 'http://localhost:8002';
-      const response = await fetch(`${gatewayUrl}/api/organizations`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch organizations');
-      }
-
-      const data = await response.json();
-      setOrganizations(data);
-    } catch (err) {
-      console.error('Error fetching organizations:', err);
-      setError('Failed to load organizations');
-    } finally {
-      setIsLoadingOrgs(false);
-    }
-  }, [isAuthenticated, token]);
-
-  const fetchOrganizationRepositories = async (orgLogin: string) => {
-    if (!isAuthenticated || !token) return;
-
-    setLoadingRepos(prev => new Set(prev).add(orgLogin));
-    setError(null);
-
-    try {
-      const gatewayUrl = import.meta.env.VITE_API_URL || 'http://localhost:8002';
-      const response = await fetch(`${gatewayUrl}/api/organizations/${orgLogin}/repositories`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch repositories for ${orgLogin}`);
-      }
-
-      const data: OrganizationRepositories = await response.json();
-
-      setOrganizationRepos(prev => {
-        const newMap = new Map(prev);
-        newMap.set(orgLogin, data.repositories);
-        return newMap;
-      });
-
-    } catch (err) {
-      console.error(`Error fetching repositories for ${orgLogin}:`, err);
-      setError(`Failed to load repositories for ${orgLogin}`);
-    } finally {
-      setLoadingRepos(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(orgLogin);
-        return newSet;
-      });
-    }
-  };
-
-  const toggleOrganization = async (orgLogin: string) => {
+  const toggleOrganization = (orgLogin: string) => {
     const isExpanded = expandedOrgs.has(orgLogin);
 
     if (isExpanded) {
@@ -146,153 +250,48 @@ const RepositoryManager: React.FC = () => {
         return newSet;
       });
     } else {
-      // Expand organization - fetch repositories if not already loaded
+      // Expand organization
       setExpandedOrgs(prev => new Set(prev).add(orgLogin));
-
-      if (!organizationRepos.has(orgLogin)) {
-        await fetchOrganizationRepositories(orgLogin);
-      }
     }
   };
 
-  const syncRepository = async (repo: Repository, orgLogin: string) => {
-    if (!token) return;
-
-    const repoKey = `${repo.owner}/${repo.name}`;
-    setSyncingRepos(prev => new Set(prev).add(repoKey));
-    setError(null);
-
-    try {
-      const authUrl = import.meta.env.VITE_AUTH_URL || 'http://localhost:8003';
-      const response = await fetch(`${authUrl}/repos/${repo.owner}/${repo.name}/sync`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Sync failed');
-      }
-
-      const result: SyncResult = await response.json();
-
-      if (result.success) {
-        // Refresh repositories for this organization to get updated sync status
-        await fetchOrganizationRepositories(orgLogin);
-      } else {
-        setError(`Sync failed: ${result.error_message}`);
-      }
-
-    } catch (err) {
-      console.error('Error syncing repository:', err);
-      setError(err instanceof Error ? err.message : 'Sync failed');
-    } finally {
-      setSyncingRepos(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(repoKey);
-        return newSet;
-      });
-    }
+  const syncRepository = (repo: Repository, _orgLogin: string) => {
+    syncRepoMutation.mutate({ owner: repo.owner, repo: repo.name });
   };
 
-  const connectRepository = async (repo: Repository, orgLogin: string) => {
-    if (!token) return;
-
-    const repoKey = `${repo.owner}/${repo.name}`;
-    setConnectingRepos(prev => new Set(prev).add(repoKey));
-    setError(null);
-
-    try {
-      const gatewayUrl = import.meta.env.VITE_API_URL || 'http://localhost:8002';
-      const response = await fetch(`${gatewayUrl}/api/repos/connect`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          owner: repo.owner,
-          name: repo.name,
-          is_public: !repo.permissions.admin // If user doesn't have admin, assume public dashboard
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Connect failed');
-      }
-
-      const result: ConnectResult = await response.json();
-
-      if (result.success) {
-        // Refresh repositories for this organization to get updated connection status
-        await fetchOrganizationRepositories(orgLogin);
-      } else {
-        setError(`Connect failed: ${result.message}`);
-      }
-
-    } catch (err) {
-      console.error('Error connecting repository:', err);
-      setError(err instanceof Error ? err.message : 'Connect failed');
-    } finally {
-      setConnectingRepos(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(repoKey);
-        return newSet;
-      });
-    }
+  const connectRepository = (repo: Repository, _orgLogin: string) => {
+    connectRepoMutation.mutate({
+      owner: repo.owner,
+      name: repo.name,
+      is_public: !repo.permissions.admin // If user doesn't have admin, assume public dashboard
+    });
   };
 
-  const disconnectRepository = async (repo: Repository, orgLogin: string) => {
-    if (!token) return;
-
-    const repoKey = `${repo.owner}/${repo.name}`;
-    setDisconnectingRepos(prev => new Set(prev).add(repoKey));
-    setError(null);
-
-    try {
-      const gatewayUrl = import.meta.env.VITE_API_URL || 'http://localhost:8002';
-      const response = await fetch(`${gatewayUrl}/api/repos/${repo.owner}/${repo.name}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Disconnect failed');
-      }
-
-      const result: DisconnectResult = await response.json();
-
-      if (result.success) {
-        // Refresh repositories for this organization to get updated connection status
-        await fetchOrganizationRepositories(orgLogin);
-      } else {
-        setError(`Disconnect failed: ${result.message}`);
-      }
-
-    } catch (err) {
-      console.error('Error disconnecting repository:', err);
-      setError(err instanceof Error ? err.message : 'Disconnect failed');
-    } finally {
-      setDisconnectingRepos(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(repoKey);
-        return newSet;
-      });
-    }
+  const disconnectRepository = (repo: Repository, _orgLogin: string) => {
+    disconnectRepoMutation.mutate({ owner: repo.owner, repo: repo.name });
   };
 
-  useEffect(() => {
-    if (isAuthenticated) {
-      fetchOrganizations();
-    }
-  }, [isAuthenticated, fetchOrganizations]);
+  // Error handling - combine all possible errors
+  const error = orgsError?.message ||
+    connectRepoMutation.error?.message ||
+    disconnectRepoMutation.error?.message ||
+    syncRepoMutation.error?.message;
+
+  // Track loading states for mutations
+  const connectingRepos = new Set<string>();
+  const disconnectingRepos = new Set<string>();
+  const syncingRepos = new Set<string>();
+
+  // Add current mutations to loading sets
+  if (connectRepoMutation.isPending && connectRepoMutation.variables) {
+    connectingRepos.add(`${connectRepoMutation.variables.owner}/${connectRepoMutation.variables.name}`);
+  }
+  if (disconnectRepoMutation.isPending && disconnectRepoMutation.variables) {
+    disconnectingRepos.add(`${disconnectRepoMutation.variables.owner}/${disconnectRepoMutation.variables.repo}`);
+  }
+  if (syncRepoMutation.isPending && syncRepoMutation.variables) {
+    syncingRepos.add(`${syncRepoMutation.variables.owner}/${syncRepoMutation.variables.repo}`);
+  }
 
   const getSyncStatusColor = (status?: string) => {
     switch (status) {
@@ -308,33 +307,13 @@ const RepositoryManager: React.FC = () => {
     return new Date(dateString).toLocaleDateString();
   };
 
-  // Filter repositories based on current filter state
+  // Filter organizations based on search term (repositories are filtered per organization)
   const getFilteredOrganizations = () => {
-    return organizations.map(org => {
-      const repos = organizationRepos.get(org.login) || [];
-      const filteredRepos = repos.filter(repo => {
-        // Search filter
-        const searchMatch = searchTerm === '' ||
-          repo.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          repo.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          repo.owner.toLowerCase().includes(searchTerm.toLowerCase());
+    if (!searchTerm) return organizations;
 
-        // Connection filter
-        const connectionMatch = connectionFilter === 'all' ||
-          (connectionFilter === 'connected' && repo.connected) ||
-          (connectionFilter === 'not-connected' && !repo.connected);
-
-        // Permission filter
-        const permissionMatch = permissionFilter === 'all' ||
-          (permissionFilter === 'admin' && repo.permissions.admin) ||
-          (permissionFilter === 'push' && repo.permissions.push) ||
-          (permissionFilter === 'pull' && repo.permissions.pull);
-
-        return searchMatch && connectionMatch && permissionMatch;
-      });
-
-      return { ...org, filteredRepos };
-    }).filter(org => org.filteredRepos.length > 0 || searchTerm === ''); // Show org if it has filtered repos or no search term
+    // If there's a search term, only show organizations that are expanded
+    // The actual repository filtering will happen in the OrganizationCard component
+    return organizations.filter(org => expandedOrgs.has(org.login));
   };
 
   if (!isAuthenticated) {
@@ -353,13 +332,13 @@ const RepositoryManager: React.FC = () => {
       <div className="repository-manager-container">
         <div className="repository-manager-header">
           <h2>Repository Management</h2>
-          <button
-            onClick={fetchOrganizations}
-            disabled={isLoadingOrgs}
-            className="refresh-btn"
-          >
-            {isLoadingOrgs ? 'Loading...' : 'Refresh'}
-          </button>
+           <button
+             onClick={() => refetchOrganizations()}
+             disabled={isLoadingOrgs}
+             className="refresh-btn"
+           >
+             {isLoadingOrgs ? 'Loading...' : 'Refresh'}
+           </button>
         </div>
 
         <div className="filters-group">
@@ -422,148 +401,28 @@ const RepositoryManager: React.FC = () => {
             const filteredOrgs = getFilteredOrganizations();
             return filteredOrgs.length === 0 ? (
               <div className="no-organizations">
-                <p>No repositories match your filters. Try adjusting your search criteria.</p>
+                <p>No organizations found. Try refreshing or check your permissions.</p>
               </div>
             ) : (
-              filteredOrgs.map((org) => {
-                const isExpanded = expandedOrgs.has(org.login);
-                const isLoadingRepos = loadingRepos.has(org.login);
-                const repos = org.filteredRepos;
-
-              return (
-                <div
+              filteredOrgs.map((org) => (
+                <OrganizationCard
                   key={org.login}
-                  className="organization-card"
-                  data-expanded={isExpanded}
-                >
-                  <div
-                    className="organization-header"
-                    onClick={() => toggleOrganization(org.login)}
-                    style={{ cursor: 'pointer' }}
-                  >
-                    <div className="organization-info">
-                      <img
-                        src={org.avatar_url}
-                        alt={`${org.login} avatar`}
-                        className="organization-avatar"
-                        width="32"
-                        height="32"
-                      />
-                      <div className="organization-details">
-                        <h3 className="organization-name">
-                          {org.name || org.login}
-                          <span className="organization-type">({org.type})</span>
-                        </h3>
-                        <p className="organization-description">
-                          {org.description || `${org.accessible_repos ?? org.public_repos} accessible repositories`}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="organization-expand">
-                      <span className={`expand-arrow ${isExpanded ? 'expanded' : ''}`}>
-                        ▶
-                      </span>
-                      <span className="repo-count">{org.accessible_repos ?? org.public_repos} repos</span>
-                    </div>
-                  </div>
-
-                  {isExpanded && (
-                    <div className="organization-repositories">
-                      {isLoadingRepos ? (
-                        <div className="loading-container">
-                          <div className="loading-spinner"></div>
-                          <p>Loading repositories...</p>
-                        </div>
-                      ) : repos.length === 0 ? (
-                        <div className="no-repositories">
-                          <p>No accessible repositories found in this organization.</p>
-                        </div>
-                      ) : (
-                        <div className="repositories-list">
-                          {repos.map((repo) => {
-                            const repoKey = `${repo.owner}/${repo.name}`;
-                            const isSyncing = syncingRepos.has(repoKey);
-                            const isConnecting = connectingRepos.has(repoKey);
-                            const isDisconnecting = disconnectingRepos.has(repoKey);
-                            const isConnected = repo.connected; // Use proper connection status from backend
-
-                            return (
-                              <div key={repo.full_name} className="repository-card">
-                                <div className="repository-header">
-                                  <h4 className="repository-name">{repo.full_name}</h4>
-                                  <div className="repository-permissions">
-                                    {repo.permissions.admin && <span className="permission-badge admin">Admin</span>}
-                                    {repo.permissions.push && <span className="permission-badge push">Push</span>}
-                                    {repo.permissions.pull && <span className="permission-badge pull">Pull</span>}
-                                  </div>
-                                </div>
-
-                                <div className="repository-stats">
-                                  <div className="stat">
-                                    <span className="stat-label">Connection:</span>
-                                    <span className={`stat-value connection-status ${isConnected ? 'connected' : 'not-connected'}`}>
-                                      {isConnected ? 'Connected' : 'Not Connected'}
-                                    </span>
-                                  </div>
-                                  <div className="stat">
-                                    <span className="stat-label">Last Sync:</span>
-                                    <span className="stat-value">{formatLastSync(repo.last_sync_at)}</span>
-                                  </div>
-                                  <div className="stat">
-                                    <span className="stat-label">Issues Synced:</span>
-                                    <span className="stat-value">{repo.issues_synced}</span>
-                                  </div>
-                                  {repo.sync_status && (
-                                    <div className="stat">
-                                      <span className="stat-label">Sync Status:</span>
-                                      <span
-                                        className="sync-status"
-                                        style={{ color: getSyncStatusColor(repo.sync_status) }}
-                                      >
-                                        {repo.sync_status}
-                                      </span>
-                                    </div>
-                                  )}
-                                </div>
-
-                                <div className="repository-actions">
-                                  {!isConnected ? (
-                                    <button
-                                      onClick={() => connectRepository(repo, org.login)}
-                                      disabled={isConnecting}
-                                      className="connect-btn"
-                                    >
-                                      {isConnecting ? 'Connecting...' : 'Connect Repository'}
-                                    </button>
-                                  ) : (
-                                    <>
-                                      <button
-                                        onClick={() => syncRepository(repo, org.login)}
-                                        disabled={isSyncing || repo.sync_status === 'syncing'}
-                                        className="sync-btn"
-                                      >
-                                        {isSyncing ? 'Syncing...' : 'Sync Issues'}
-                                      </button>
-                                      <button
-                                        onClick={() => disconnectRepository(repo, org.login)}
-                                        disabled={isDisconnecting}
-                                        className="disconnect-btn"
-                                      >
-                                        {isDisconnecting ? 'Disconnecting...' : 'Disconnect'}
-                                      </button>
-                                    </>
-                                  )}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })
+                  organization={org}
+                  isExpanded={expandedOrgs.has(org.login)}
+                  onToggle={() => toggleOrganization(org.login)}
+                  searchTerm={searchTerm}
+                  connectionFilter={connectionFilter}
+                  permissionFilter={permissionFilter}
+                  onConnectRepository={connectRepository}
+                  onDisconnectRepository={disconnectRepository}
+                  onSyncRepository={syncRepository}
+                  connectingRepos={connectingRepos}
+                  disconnectingRepos={disconnectingRepos}
+                  syncingRepos={syncingRepos}
+                  getSyncStatusColor={getSyncStatusColor}
+                  formatLastSync={formatLastSync}
+                />
+              ))
             );
           })()}
         </div>

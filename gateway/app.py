@@ -1400,14 +1400,44 @@ async def get_user_organizations(
         async with GitHubAPIClient(github_token) as github_client:
             organizations = await github_client.get_user_organizations()
 
-            # Fetch accessible repos count for each organization
+            # Fetch accessible repos count for each organization in parallel
+            async def get_accessible_count(org):
+                try:
+                    # Get accessible repositories for this org to get accurate count
+                    # Limit to 200 repos for performance (just for counting)
+                    accessible_repos = (
+                        await github_client.get_organization_repositories(
+                            org.login, max_repos=200
+                        )
+                    )
+                    return len(accessible_repos)
+                except Exception as e:
+                    logger.warning(
+                        "Failed to get accessible repos count for organization",
+                        org=org.login,
+                        error=str(e),
+                    )
+                    # Return public repos count as fallback
+                    return org.public_repos
+
+            # Execute all repository count fetches in parallel
+            count_tasks = [get_accessible_count(org) for org in organizations]
+            accessible_counts = await asyncio.gather(
+                *count_tasks, return_exceptions=True
+            )
+
+            # Build result with accessible counts
             result = []
-            for org in organizations:
-                # Get accessible repositories for this org to get accurate count
-                # Limit to 200 repos for performance (just for counting)
-                accessible_repos = await github_client.get_organization_repositories(
-                    org.login, max_repos=200
-                )
+            for i, org in enumerate(organizations):
+                count = accessible_counts[i]
+                # Handle exceptions in gather results
+                if isinstance(count, Exception):
+                    logger.warning(
+                        "Exception getting count for org, using public count",
+                        org=org.login,
+                        error=str(count),
+                    )
+                    count = org.public_repos
 
                 result.append(
                     OrganizationResponse(
@@ -1420,7 +1450,7 @@ async def get_user_organizations(
                         type=org.type,
                         public_repos=org.public_repos,
                         total_private_repos=org.total_private_repos,
-                        accessible_repos=len(accessible_repos),
+                        accessible_repos=count,
                     )
                 )
 
