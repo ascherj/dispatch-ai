@@ -620,6 +620,11 @@ async def store_enriched_issue(
             internal_issue_id = result[0]
 
             # Store enriched data with upsert to ensure idempotency
+            # Convert embedding list to string format for pgvector
+            embedding_str = None
+            if embedding:
+                embedding_str = f"[{','.join(map(str, embedding))}]"
+
             cur.execute(
                 """
                 INSERT INTO dispatchai.enriched_issues (
@@ -627,7 +632,7 @@ async def store_enriched_issue(
                     estimated_effort, category, priority, severity, component, sentiment,
                     embedding, confidence_score, processing_model, ai_reasoning
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::vector, %s, %s, %s)
                 ON CONFLICT (issue_id)
                 DO UPDATE SET
                     classification = EXCLUDED.classification,
@@ -658,7 +663,7 @@ async def store_enriched_issue(
                     classification.get("severity", "minor"),
                     classification.get("component", "unknown"),
                     classification.get("sentiment", "neutral"),
-                    embedding,
+                    embedding_str,
                     classification.get("confidence", 0.0),
                     "gpt-4o-mini",
                     classification.get("reasoning", ""),
@@ -772,10 +777,12 @@ async def find_similar_issues(
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             if issue_embedding:
                 # Vector similarity search
+                # Convert embedding list to string format for pgvector
+                embedding_str = f"[{','.join(map(str, issue_embedding))}]"
                 cur.execute(
                     """
                     SELECT i.id, i.issue_number, i.title, i.repository_name,
-                           ei.embedding <-> %s as similarity_distance
+                           ei.embedding <-> %s::vector as similarity_distance
                     FROM dispatchai.issues i
                     JOIN dispatchai.enriched_issues ei ON i.id = ei.issue_id
                     WHERE i.repository_name = %s AND i.github_issue_id != %s
@@ -783,7 +790,7 @@ async def find_similar_issues(
                     ORDER BY similarity_distance ASC
                     LIMIT 5
                 """,
-                    (issue_embedding, issue.repository.split("/")[-1], issue.id),
+                    (embedding_str, issue.repository.split("/")[-1], issue.id),
                 )
             else:
                 # Fallback to text similarity

@@ -136,10 +136,13 @@ function DashboardContent() {
               const issueData = message.data.issue
               const classification = message.data.classification
 
-              console.log('Updating issue with classification:', issueData.number, classification)
+              console.log('Updating issue with classification:', issueData.number, issueData.repository, classification)
 
               setIssues(prev => {
-                const existingIndex = prev.findIndex(issue => issue.number === issueData.number)
+                // Match by both issue number AND repository to avoid conflicts
+                const existingIndex = prev.findIndex(issue =>
+                  issue.number === issueData.number && issue.repository === issueData.repository
+                )
                 if (existingIndex >= 0) {
                   // Update existing issue
                   const updated = [...prev]
@@ -151,7 +154,7 @@ function DashboardContent() {
                     tags: classification?.tags || [],
                     status: 'classified'
                   }
-                  console.log('Updated existing issue')
+                  console.log('Updated existing issue at index', existingIndex)
                   return updated
                 } else {
                   // Add new issue
@@ -168,7 +171,7 @@ function DashboardContent() {
                     updated_at: issueData.updated_at,
                     status: 'classified'
                   }
-                  console.log('Added new issue:', newIssue)
+                  console.log('Added new classified issue:', newIssue)
                   return [newIssue, ...prev]
                 }
               })
@@ -233,9 +236,9 @@ function DashboardContent() {
     // Only fetch data if user is authenticated
     if (!isAuthenticated || !token) return
 
-    // Fetch initial issues
+    // Fetch initial issues (load all available issues for complete visibility)
     const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8002'
-    authenticatedFetch(`${apiUrl}/api/issues`)
+    authenticatedFetch(`${apiUrl}/api/issues?limit=1000`)
       .then(res => {
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}: ${res.statusText}`)
@@ -626,7 +629,7 @@ function DashboardContent() {
                 const isCollapsed = collapsedRepos.has(repoName)
                 return (
                   <div key={repoName} className="repository-section">
-                    <h3 
+                    <h3
                       className="repository-section-header"
                       onClick={() => {
                         setCollapsedRepos(prev => {

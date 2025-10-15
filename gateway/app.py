@@ -1021,6 +1021,46 @@ async def get_stats(current_user: dict = Depends(get_current_user_required)):
                 )
             priorities = cur.fetchall()
 
+            # Get repository-specific issue counts
+            if is_dev_mode:
+                cur.execute(
+                    """
+                    SELECT
+                        CONCAT(i.repository_owner, '/', i.repository_name) as repository,
+                        COUNT(*) as total_issues,
+                        COUNT(e.issue_id) as classified_issues
+                    FROM dispatchai.issues i
+                    LEFT JOIN dispatchai.enriched_issues e ON i.id = e.issue_id
+                    GROUP BY i.repository_owner, i.repository_name
+                    ORDER BY total_issues DESC
+                    """
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT
+                        CONCAT(i.repository_owner, '/', i.repository_name) as repository,
+                        COUNT(*) as total_issues,
+                        COUNT(e.issue_id) as classified_issues
+                    FROM dispatchai.issues i
+                    LEFT JOIN dispatchai.enriched_issues e ON i.id = e.issue_id
+                    WHERE (
+                        EXISTS (
+                            SELECT 1 FROM dispatchai.user_repositories ur
+                            JOIN dispatchai.repositories r ON ur.repo_id = r.id
+                            WHERE ur.user_id = %s
+                            AND r.owner = i.repository_owner
+                            AND r.name = i.repository_name
+                        )
+                        OR i.pulled_by_user_id = %s
+                    )
+                    GROUP BY i.repository_owner, i.repository_name
+                    ORDER BY total_issues DESC
+                    """,
+                    (user_id, user_id),
+                )
+            repositories = cur.fetchall()
+
         conn.close()
 
         return {
@@ -1032,6 +1072,14 @@ async def get_stats(current_user: dict = Depends(get_current_user_required)):
             ],
             "priorities": [
                 {"name": row["priority"], "count": row["count"]} for row in priorities
+            ],
+            "repositories": [
+                {
+                    "name": row["repository"],
+                    "total_issues": row["total_issues"],
+                    "classified_issues": row["classified_issues"],
+                }
+                for row in repositories
             ],
             "connected_clients": len(manager.active_connections),
         }

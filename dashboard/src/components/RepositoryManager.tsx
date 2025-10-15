@@ -18,9 +18,9 @@ interface OrganizationCardProps {
   searchTerm: string;
   connectionFilter: 'all' | 'connected' | 'not-connected';
   permissionFilter: 'all' | 'admin' | 'push' | 'pull';
-  onConnectRepository: (repo: Repository, orgLogin: string) => void;
-  onDisconnectRepository: (repo: Repository, orgLogin: string) => void;
-  onSyncRepository: (repo: Repository, orgLogin: string) => void;
+  onConnectRepository: (repo: Repository) => void;
+  onDisconnectRepository: (repo: Repository) => void;
+  onSyncRepository: (repo: Repository) => void;
   connectingRepos: Set<string>;
   disconnectingRepos: Set<string>;
   syncingRepos: Set<string>;
@@ -179,29 +179,29 @@ const OrganizationCard: React.FC<OrganizationCardProps> = ({
 
                     <div className="repository-actions">
                       {!isConnected ? (
-                        <button
-                          onClick={() => onConnectRepository(repo, organization.login)}
-                          disabled={isConnecting}
-                          className="connect-btn"
-                        >
-                          {isConnecting ? 'Connecting...' : 'Connect Repository'}
-                        </button>
-                      ) : (
-                        <>
-                          <button
-                            onClick={() => onSyncRepository(repo, organization.login)}
-                            disabled={isSyncing || repo.sync_status === 'syncing'}
-                            className="sync-btn"
-                          >
-                            {isSyncing ? 'Syncing...' : 'Sync Issues'}
-                          </button>
-                          <button
-                            onClick={() => onDisconnectRepository(repo, organization.login)}
-                            disabled={isDisconnecting}
-                            className="disconnect-btn"
-                          >
-                            {isDisconnecting ? 'Disconnecting...' : 'Disconnect'}
-                          </button>
+                         <button
+                           onClick={() => onConnectRepository(repo)}
+                           disabled={isConnecting}
+                           className="connect-btn"
+                         >
+                           {isConnecting ? 'Connecting...' : 'Connect Repository'}
+                         </button>
+                       ) : (
+                         <>
+                           <button
+                             onClick={() => onSyncRepository(repo)}
+                             disabled={isSyncing || repo.sync_status === 'syncing'}
+                             className="sync-btn"
+                           >
+                             {isSyncing ? 'Syncing...' : 'Sync Issues'}
+                           </button>
+                           <button
+                             onClick={() => onDisconnectRepository(repo)}
+                             disabled={isDisconnecting}
+                             className="disconnect-btn"
+                           >
+                             {isDisconnecting ? 'Disconnecting...' : 'Disconnect'}
+                           </button>
                         </>
                       )}
                     </div>
@@ -255,11 +255,11 @@ const RepositoryManager: React.FC = () => {
     }
   };
 
-  const syncRepository = (repo: Repository, _orgLogin: string) => {
+  const syncRepository = (repo: Repository) => {
     syncRepoMutation.mutate({ owner: repo.owner, repo: repo.name });
   };
 
-  const connectRepository = (repo: Repository, _orgLogin: string) => {
+  const connectRepository = (repo: Repository) => {
     connectRepoMutation.mutate({
       owner: repo.owner,
       name: repo.name,
@@ -267,7 +267,7 @@ const RepositoryManager: React.FC = () => {
     });
   };
 
-  const disconnectRepository = (repo: Repository, _orgLogin: string) => {
+  const disconnectRepository = (repo: Repository) => {
     disconnectRepoMutation.mutate({ owner: repo.owner, repo: repo.name });
   };
 
@@ -413,9 +413,9 @@ const RepositoryManager: React.FC = () => {
                   searchTerm={searchTerm}
                   connectionFilter={connectionFilter}
                   permissionFilter={permissionFilter}
-                  onConnectRepository={connectRepository}
-                  onDisconnectRepository={disconnectRepository}
-                  onSyncRepository={syncRepository}
+                  onConnectRepository={(repo) => connectRepository(repo)}
+                  onDisconnectRepository={(repo) => disconnectRepository(repo)}
+                  onSyncRepository={(repo) => syncRepository(repo)}
                   connectingRepos={connectingRepos}
                   disconnectingRepos={disconnectingRepos}
                   syncingRepos={syncingRepos}
