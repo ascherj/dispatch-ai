@@ -85,6 +85,7 @@ function DashboardContent() {
   const [sortBy, setSortBy] = useState<'date' | 'priority' | 'status'>('date')
   const [filterCategory, setFilterCategory] = useState<string>('all')
   const [filterPriority, setFilterPriority] = useState<string>('all')
+  const [filterStatus, setFilterStatus] = useState<string>('all')
   const [collapsedRepos, setCollapsedRepos] = useState<Set<string>>(new Set())
 
   // Utility function for authenticated API calls
@@ -556,6 +557,20 @@ function DashboardContent() {
                   <option value="low">Low</option>
                 </select>
               </div>
+
+              <div className="filter-item">
+                <label htmlFor="status-filter">Status:</label>
+                <select
+                  id="status-filter"
+                  value={filterStatus}
+                  onChange={(e) => setFilterStatus(e.target.value)}
+                  className="filter-select"
+                >
+                  <option value="all">All Statuses</option>
+                  <option value="pending">Pending</option>
+                  <option value="classified">Classified</option>
+                </select>
+              </div>
               
               <div className="filter-item">
                 <label htmlFor="sort-by">Sort By:</label>
@@ -577,7 +592,8 @@ function DashboardContent() {
               const repoMatch = selectedRepo === 'all' || issue.repository === selectedRepo
               const categoryMatch = filterCategory === 'all' || issue.category === filterCategory
               const priorityMatch = filterPriority === 'all' || issue.priority === filterPriority
-              return repoMatch && categoryMatch && priorityMatch
+              const statusMatch = filterStatus === 'all' || issue.status === filterStatus
+              return repoMatch && categoryMatch && priorityMatch && statusMatch
             })
             
             filteredIssues = [...filteredIssues].sort((a, b) => {
