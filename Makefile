@@ -1,7 +1,7 @@
 # DispatchAI Development Makefile
 # Provides targets for development, testing, linting, and deployment
 
-.PHONY: help dev dev-up dev-down dev-logs dev-clean test test-docker test-ingress test-classifier test-gateway test-dashboard test-classifier-docker test-gateway-docker test-dashboard-docker lint lint-python lint-python-docker lint-js clean build setup-env check-env check-containers test-webhook-manual demo trace-recent trace-id kafka-tail health health-ingress health-classifier health-gateway metrics metrics-ingress metrics-classifier metrics-gateway metrics-summary watch-metrics system-status
+.PHONY: help dev dev-up dev-down dev-logs dev-clean dev-nuke prod-nuke test test-docker test-ingress test-classifier test-gateway test-dashboard test-classifier-docker test-gateway-docker test-dashboard-docker lint lint-python lint-python-docker lint-js clean build setup-env check-env check-containers test-webhook-manual demo trace-recent trace-id kafka-tail health health-ingress health-classifier health-gateway metrics metrics-ingress metrics-classifier metrics-gateway metrics-summary watch-metrics system-status
 
 # Default target
 help: ## Show this help message
@@ -47,6 +47,44 @@ dev-clean: ## Stop services and remove volumes/networks
 	cd infra && docker compose down -v --remove-orphans
 	@echo "Pruning unused Docker resources..."
 	docker system prune -f
+
+dev-nuke: ## Completely remove and restart all dev images, containers, and volumes
+	@echo "🧨 NUKING development environment completely..."
+	@echo "⚠️  This will remove ALL dev containers, images, volumes, and networks!"
+	@echo "Stopping all dev services..."
+	cd infra && docker compose down --remove-orphans 2>/dev/null || true
+	@echo "Removing all containers..."
+	docker container prune -f
+	@echo "Removing all images..."
+	docker image prune -a -f
+	@echo "Removing all volumes..."
+	docker volume prune -f
+	@echo "Removing all networks..."
+	docker network prune -f
+	@echo "🧹 Complete dev system cleanup done"
+	@echo "🔄 Restarting fresh dev environment..."
+	@make dev-up
+
+prod-nuke: ## Completely remove and restart all prod images, containers, and volumes (DESTRUCTIVE!)
+	@echo "🧨 NUKING production environment completely..."
+	@echo "⚠️  WARNING: This will PERMANENTLY DELETE ALL PRODUCTION DATA!"
+	@echo "Type 'NUKE_PROD' to confirm:"
+	@read confirmation && [ "$$confirmation" = "NUKE_PROD" ] || (echo "Nuke cancelled" && exit 1)
+	@echo "Stopping all prod services..."
+	docker-compose -f docker-compose.prod.yml --env-file .env.prod down --remove-orphans 2>/dev/null || true
+	@echo "Removing all containers..."
+	docker container prune -f
+	@echo "Removing all images..."
+	docker image prune -a -f
+	@echo "Removing all volumes..."
+	docker volume prune -f
+	@echo "Removing all networks..."
+	docker network prune -f
+	@echo "🧹 Complete prod system cleanup done"
+	@echo "🔄 Restarting fresh prod environment..."
+	docker-compose -f docker-compose.prod.yml --env-file .env.prod up -d
+	@echo "Waiting for prod services to be ready..."
+	@sleep 10
 
 # Health Checks & Metrics
 check-services: ## Check if all services are healthy
