@@ -52,13 +52,13 @@ dev-nuke: ## Completely remove and restart all dev images, containers, and volum
 	@echo "🧨 NUKING development environment completely..."
 	@echo "⚠️  This will remove ALL dev containers, images, volumes, and networks!"
 	@echo "Stopping all dev services..."
-	cd infra && docker compose down --remove-orphans 2>/dev/null || true
+	cd infra && docker compose down --remove-orphans --volumes 2>/dev/null || true
+	@echo "Removing project-specific volumes..."
+	docker volume rm infra_redpanda_data infra_postgres_data infra_dashboard_node_modules 2>/dev/null || true
 	@echo "Removing all containers..."
 	docker container prune -f
 	@echo "Removing all images..."
 	docker image prune -a -f
-	@echo "Removing all volumes..."
-	docker volume prune -f
 	@echo "Removing all networks..."
 	docker network prune -f
 	@echo "🧹 Complete dev system cleanup done"
@@ -71,13 +71,13 @@ prod-nuke: ## Completely remove and restart all prod images, containers, and vol
 	@echo "Type 'NUKE_PROD' to confirm:"
 	@read confirmation && [ "$$confirmation" = "NUKE_PROD" ] || (echo "Nuke cancelled" && exit 1)
 	@echo "Stopping all prod services..."
-	docker-compose -f docker-compose.prod.yml --env-file .env.prod down --remove-orphans 2>/dev/null || true
+	docker-compose -f docker-compose.prod.yml --env-file .env.prod down --remove-orphans --volumes 2>/dev/null || true
+	@echo "Removing project-specific volumes..."
+	docker volume rm dispatch-ai_postgres_data dispatch-ai_redpanda_data 2>/dev/null || true
 	@echo "Removing all containers..."
 	docker container prune -f
 	@echo "Removing all images..."
 	docker image prune -a -f
-	@echo "Removing all volumes..."
-	docker volume prune -f
 	@echo "Removing all networks..."
 	docker network prune -f
 	@echo "🧹 Complete prod system cleanup done"
