@@ -153,6 +153,22 @@ Automatically:
 - Searches all service logs
 - Verifies E2E tracing works
 
+### Production Tracing (with Signature Verification)
+
+In production, webhook signature verification is enabled. To trace issues:
+
+**View recent correlation IDs:**
+```bash
+make trace-recent
+```
+
+**Trace a specific ID:**
+```bash
+make trace-id ID=abc-123-def-456
+```
+
+This works in both dev and production environments, automatically detecting the correct container names.
+
 ---
 
 ## Kafka Consumer Monitoring
@@ -408,6 +424,8 @@ Target: Classification >95% → Current: Issues processed without errors ✅ On 
 | `make metrics-summary` | Quick metrics view | Live presentations |
 | `make watch-metrics` | Real-time monitoring | Show system under load |
 | `make health` | Service health checks | Verify dependencies |
+| `make trace-recent` | Show recent correlation IDs | Production tracing |
+| `make trace-id ID=<id>` | Trace specific request | E2E debugging |
 | `make kafka-describe-group` | Consumer lag details | Debug backpressure |
 | `./scripts/demo-system-showcase.sh` | Automated demo script | E2E demonstration |
 

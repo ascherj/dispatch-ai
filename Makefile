@@ -1,7 +1,7 @@
 # DispatchAI Development Makefile
 # Provides targets for development, testing, linting, and deployment
 
-.PHONY: help dev dev-up dev-down dev-logs dev-clean test test-docker test-ingress test-classifier test-gateway test-dashboard test-classifier-docker test-gateway-docker test-dashboard-docker lint lint-python lint-python-docker lint-js clean build setup-env check-env check-containers test-webhook-manual demo kafka-tail health health-ingress health-classifier health-gateway metrics metrics-ingress metrics-classifier metrics-gateway metrics-summary watch-metrics system-status
+.PHONY: help dev dev-up dev-down dev-logs dev-clean test test-docker test-ingress test-classifier test-gateway test-dashboard test-classifier-docker test-gateway-docker test-dashboard-docker lint lint-python lint-python-docker lint-js clean build setup-env check-env check-containers test-webhook-manual demo trace-recent trace-id kafka-tail health health-ingress health-classifier health-gateway metrics metrics-ingress metrics-classifier metrics-gateway metrics-summary watch-metrics system-status
 
 # Default target
 help: ## Show this help message
@@ -274,6 +274,50 @@ demo: ## Run comprehensive system showcase demo (perfect for interviews!)
 		./scripts/demo-system-showcase.sh; \
 	else \
 		echo "❌ Demo script not found at scripts/demo-system-showcase.sh"; \
+	fi
+
+trace-recent: ## Show recent correlation IDs and trace one (for production demos)
+	@echo "Recent Correlation IDs:"
+	@echo "======================="
+	@if docker ps --format "{{.Names}}" | grep -q "dispatchai-ingress-prod"; then \
+		docker logs dispatchai-ingress-prod 2>&1 | grep "correlation_id" | grep "Webhook processed successfully" | tail -10 | sed 's/.*correlation_id"://' | sed 's/,.*//' | sed 's/"//g'; \
+		echo ""; \
+		echo "To trace a specific ID, run:"; \
+		echo "  make trace-id ID=<correlation-id-from-above>"; \
+	else \
+		docker logs dispatchai-ingress 2>&1 | grep "correlation_id" | grep "Webhook processed successfully" | tail -10 | sed 's/.*correlation_id"://' | sed 's/,.*//' | sed 's/"//g'; \
+		echo ""; \
+		echo "To trace a specific ID, run:"; \
+		echo "  make trace-id ID=<correlation-id-from-above>"; \
+	fi
+
+trace-id: ## Trace a specific correlation ID through all services (usage: make trace-id ID=abc-123)
+	@if [ -z "$(ID)" ]; then \
+		echo "❌ Usage: make trace-id ID=<correlation-id>"; \
+		echo "Get recent IDs with: make trace-recent"; \
+		exit 1; \
+	fi
+	@echo "Tracing correlation_id: $(ID)"
+	@echo "======================================"
+	@echo ""
+	@if docker ps --format "{{.Names}}" | grep -q "dispatchai-ingress-prod"; then \
+		echo "📊 Ingress Service:"; \
+		docker logs dispatchai-ingress-prod 2>&1 | grep "$(ID)" | head -10; \
+		echo ""; \
+		echo "🤖 Classifier Service:"; \
+		docker logs dispatchai-classifier-prod 2>&1 | grep "$(ID)" | head -10; \
+		echo ""; \
+		echo "🔗 Gateway Service:"; \
+		docker logs dispatchai-gateway-prod 2>&1 | grep "$(ID)" | head -10; \
+	else \
+		echo "📊 Ingress Service:"; \
+		docker logs dispatchai-ingress 2>&1 | grep "$(ID)" | head -10; \
+		echo ""; \
+		echo "🤖 Classifier Service:"; \
+		docker logs dispatchai-classifier 2>&1 | grep "$(ID)" | head -10; \
+		echo ""; \
+		echo "🔗 Gateway Service:"; \
+		docker logs dispatchai-gateway 2>&1 | grep "$(ID)" | head -10; \
 	fi
 
 # Linting
