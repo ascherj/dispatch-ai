@@ -141,7 +141,11 @@ metrics: ## Show comprehensive metrics from all services
 	@curl -s http://localhost:8002/metrics 2>/dev/null | python3 -m json.tool || echo "❌ Metrics unavailable"
 	@echo ""
 	@echo "📡 Kafka Consumer Lag:"
-	@docker exec dispatchai-redpanda rpk group describe dispatchai-classifier 2>/dev/null || echo "❌ Consumer group not found"
+	@if docker ps --format "{{.Names}}" | grep -q "dispatchai-redpanda-prod"; then \
+		docker exec dispatchai-redpanda-prod rpk group describe dispatchai-classifier 2>/dev/null || echo "❌ Consumer group not found"; \
+	else \
+		docker exec dispatchai-redpanda rpk group describe dispatchai-classifier 2>/dev/null || echo "❌ Consumer group not found"; \
+	fi
 	@echo ""
 
 metrics-ingress: ## Show metrics for ingress service
